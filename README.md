@@ -18,7 +18,9 @@ foundry-ai-gateway/
 ├── infra/
 │   ├── main.bicep           # APIM Standard v2 + 2 Foundry regions + backend pool + inference API
 │   ├── policy.xml           # load-balance + retry-on-429/503 + managed-identity auth
-│   ├── deploy.ps1           # one-command deploy
+│   ├── deploy.ps1           # one-command deploy (Parts 1–3)
+│   ├── litellm-foundry.bicep        # Part 5: LiteLLM on Container Apps + Foundry Model Gateway connection
+│   ├── deploy-litellm-foundry.ps1   # Part 5: deploy the BYO-gateway-into-Foundry stack
 │   └── cleanup.ps1          # tear down
 └── src/
     ├── test/
@@ -28,9 +30,11 @@ foundry-ai-gateway/
     │   ├── agent_apim.py            # APIM: OpenAI Agents SDK agent + tool
     │   ├── test_litellm_tools.py    # LiteLLM: models + tools (function calling)
     │   ├── agent_litellm.py         # LiteLLM: OpenAI Agents SDK agent + tool
+    │   ├── agent_foundry_litellm.py # Part 5: Foundry Agent Service agent via the gateway
     │   └── requirements.txt
     └── litellm/
-        ├── config.yaml      # LiteLLM proxy config (2 Foundry regions, Entra ID auth)
+        ├── config.yaml          # LiteLLM proxy config — Part 4 (static Entra ID token)
+        ├── config.foundry.yaml  # LiteLLM proxy config — Part 5 (managed identity, auto-refresh)
         ├── docker-compose.yml
         └── .env.example
 ```
@@ -57,7 +61,14 @@ python ../src/test/test_burst.py              # concurrent burst -> forces failo
 python ../src/test/sample_openai_apim.py      # OpenAI SDK (AzureOpenAI) -> APIM
 python ../src/test/agent_apim.py              # OpenAI Agents SDK agent + tool -> APIM
 
-# 4. Clean up when done
+# 4. (Part 5) Bring your own gateway INTO Foundry: LiteLLM on Container Apps + a
+#    Foundry "Model Gateway" connection, then a Foundry Agent Service agent through it
+./deploy-litellm-foundry.ps1                   # deploys LiteLLM + creates the connection
+$env:FOUNDRY_PROJECT_ENDPOINT = "https://<account>.services.ai.azure.com/api/projects/<project>"
+$env:FOUNDRY_MODEL_DEPLOYMENT_NAME = "litellm-gateway/gpt-4o-mini"
+python ../src/test/agent_foundry_litellm.py    # Foundry agent runs its model THROUGH LiteLLM
+
+# 5. Clean up when done
 ./cleanup.ps1
 ```
 
@@ -65,6 +76,7 @@ python ../src/test/agent_apim.py              # OpenAI Agents SDK agent + tool -
 > - **Load balancing + failover** — a 60-request concurrent burst returned **60 × HTTP 200** (the retry policy absorbed every 429) splitting **East US 2: 39 / Sweden Central: 21** — priority-1 served traffic until its 8K-TPM cap, then APIM failed over to priority-2.
 > - **OpenAI SDK + agent** — `sample_openai_apim.py` (official SDK) and `agent_apim.py` (OpenAI Agents SDK with a tool) both ran on the gateway; the agent answered *"250 US dollars is approximately 230 euros and 197.50 pounds"* after calling its tool.
 > - **LiteLLM BYO (Entra ID auth)** — `test_litellm_tools.py` returned a chat reply **and** a `get_current_weather` tool call; `agent_litellm.py` ran the same agent on LiteLLM — proving **models + tools + agents**.
+> - **LiteLLM *into* Foundry (Part 5)** — LiteLLM deployed to **Azure Container Apps** (managed identity, Entra ID auto-refresh) and registered as a Foundry **Model Gateway connection**. `GET /v1/models` → 200, `POST /v1/chat/completions` → 200, and a **Foundry Agent Service** prompt agent (`litellm-gateway/gpt-4o-mini`) replied end to end *through the gateway* — proving **Foundry Agent Service → connection → LiteLLM → Foundry**.
 
 ## Integration features comparison
 
@@ -79,6 +91,7 @@ The three gateway approaches differ most in **what they can govern**. The matrix
 | **Tools** — execution host | ❌ Client executes the tool | ❌ Client/agent executes the tool | ❌ Client executes the tool |
 | **Agents** — hosted agent runtime | ❌ Not an agent runtime (gateway only) | ✅ Integrates with **Foundry Agent Service** + custom agent registration | ❌ Not an agent runtime |
 | **Agents** — as a model backend for frameworks | ✅ OpenAI-compatible endpoint | ✅ Via Foundry projects | ✅ Point Semantic Kernel/LangChain at the OpenAI-compatible endpoint |
+| **Agents** — backend for **Foundry Agent Service** (BYO gateway connection) | ✅ APIM connection | ✅ Native (Agent Service) | ✅ **Model Gateway** connection — validated (Part 5) |
 | **Foundry control plane** — registered/discoverable | ⚠️ Only when attached as the native AI Gateway | ✅ First-class: per-project quotas, custom agent registration, tool governance | ❌ Independent proxy; **cannot** register in Foundry's control plane |
 | **Per-project token limits / quotas** | ⚠️ Custom policy | ✅ Built-in | ⚠️ Virtual-key budgets only |
 | **Observability** | ✅ APIM metrics + GatewayLogs + LLM logging | ✅ Through attached APIM | ⚠️ LiteLLM logs / callbacks |
@@ -88,8 +101,8 @@ The three gateway approaches differ most in **what they can govern**. The matrix
 ### Bottom line
 
 - **Models + tools (function calling):** all three work. LiteLLM is fully capable as a **model + tool-passthrough gateway** and is the most portable — validated here with **models, tools, and an OpenAI Agents SDK agent** (Entra ID auth, no keys).
-- **Agents:** only the **Foundry native AI Gateway** integrates with the **Foundry Agent Service** and agent/tool governance. APIM and LiteLLM serve as the **model backend** for agent frameworks but are not agent runtimes.
-- **Foundry control plane:** only **Azure API Management (v2)** can be registered as Foundry's AI Gateway. A third-party gateway like **LiteLLM cannot** be registered/discovered by Foundry's control plane — it sits in front as an independent proxy.
+- **Agents:** only the **Foundry native AI Gateway** integrates with the **Foundry Agent Service** and agent/tool *governance*. That said, **Foundry Agent Service can use either gateway as a model backend** via a *bring-your-own* connection — APIM connections or a **Model Gateway** connection for LiteLLM/third-party gateways (validated in Part 5). APIM and LiteLLM are model backends, not agent runtimes.
+- **Foundry control plane:** only **Azure API Management (v2)** can be registered as Foundry's *governance* AI Gateway. A third-party gateway like **LiteLLM cannot** be registered for governance — but it *can* be attached to **Foundry Agent Service** as a Model Gateway connection (Part 5).
 
 **Guidance:** Use **APIM** (built or native) when you need Foundry-native governance — per-project quotas, agent/tool governance, control-plane registration. Use **LiteLLM** when you want a portable, multi-provider model + function-calling gateway and don't need Foundry's control plane.
 
@@ -98,6 +111,7 @@ The three gateway approaches differ most in **what they can govern**. The matrix
 - [Backend pool load balancing lab (AI-Gateway)](https://github.com/Azure-Samples/AI-Gateway/blob/main/labs/backend-pool-load-balancing/backend-pool-load-balancing.ipynb)
 - [AI gateway capabilities in Azure API Management](https://learn.microsoft.com/azure/api-management/genai-gateway-capabilities)
 - [Configure AI Gateway in your Foundry resources](https://learn.microsoft.com/azure/foundry/configuration/enable-ai-api-management-gateway-portal)
+- [Bring your own model to Foundry Agent Service (Model Gateway connection)](https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway)
 - [Expose an existing MCP server in APIM](https://learn.microsoft.com/azure/api-management/expose-existing-mcp-server)
 - [Microsoft Learn MCP server](https://learn.microsoft.com/training/support/mcp)
 - [LiteLLM — Azure AI provider](https://docs.litellm.ai/docs/providers/azure_ai)

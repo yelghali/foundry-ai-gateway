@@ -1,0 +1,50 @@
+# LiteLLM proxy config — DEPLOYED variant for "Bring Your Own Gateway into Foundry"
+#
+# This is the config baked into the Azure Container Apps deployment
+# (infra/litellm-foundry.bicep). It is the same two-region gpt-4o-mini setup as
+# config.yaml, but instead of a static Entra ID token it uses the container's
+# **managed identity** with automatic Azure AD token refresh — so the gateway can
+# run unattended (no 1-hour token expiry).
+#
+# The Container App's user-assigned managed identity is granted "Cognitive Services
+# User" on both Foundry accounts. LiteLLM picks it up via DefaultAzureCredential
+# (AZURE_CLIENT_ID is set on the container) and refreshes tokens automatically.
+#
+# Foundry Agent Service then reaches THIS proxy through a "Model Gateway" connection
+# (category: ModelGateway) and calls /chat/completions with model = gpt-4o-mini.
+
+model_list:
+  # ---- gpt-4o-mini on Foundry #1 (East US 2) ----
+  - model_name: gpt-4o-mini
+    litellm_params:
+      model: azure/gpt-4o-mini
+      api_base: os.environ/FOUNDRY1_API_BASE
+      api_version: os.environ/AZURE_API_VERSION
+      rpm: 1000
+    model_info:
+      base_model: azure/gpt-4o-mini
+
+  # ---- gpt-4o-mini on Foundry #2 (Sweden Central) ----
+  - model_name: gpt-4o-mini
+    litellm_params:
+      model: azure/gpt-4o-mini
+      api_base: os.environ/FOUNDRY2_API_BASE
+      api_version: os.environ/AZURE_API_VERSION
+      rpm: 1000
+    model_info:
+      base_model: azure/gpt-4o-mini
+
+router_settings:
+  routing_strategy: simple-shuffle
+  num_retries: 2
+  allowed_fails: 1
+  cooldown_time: 30
+
+litellm_settings:
+  drop_params: true
+  # Use the container's managed identity (DefaultAzureCredential) to mint + refresh
+  # Entra ID tokens for the azure/ deployments — no API keys, no token expiry.
+  enable_azure_ad_token_refresh: true
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY   # the key Foundry's connection presents

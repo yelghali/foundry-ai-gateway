@@ -7,6 +7,11 @@ infra/params.json
 infra/acct*.json
 infra/*_ascii.txt
 infra/main.json
+infra/*.json
+infra/bicepbuild.txt
+infra/deploy-llm.txt
+infra/whoami.txt
+infra/dstate*.txt
 
 # Secrets / env
 **/.env
@@ -15,7 +20,7 @@ infra/main.json
 # LiteLLM / test scratch output (may contain tokens)
 src/litellm/proxy.*
 src/litellm/_diag.py
-src/test/*.txt
+src/test/agentout*.txt
 src/test/out*.txt
 
 # Python
