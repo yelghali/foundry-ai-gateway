@@ -2,6 +2,6 @@ openai>=1.40.0
 requests>=2.32.0
 # Agent-framework samples (agent_apim.py, agent_litellm.py)
 openai-agents>=0.1.0
-# Foundry "bring your own gateway" agent sample (agent_foundry_litellm.py)
+# Foundry "bring your own gateway" agent samples (agent_foundry_apim.py, agent_foundry_litellm.py)
 azure-ai-projects>=2.0.0b1
 azure-identity>=1.17.0
