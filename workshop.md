@@ -418,6 +418,19 @@ Foundry Agent Service ──> Model Gateway connection ──> LiteLLM (Containe
 
 The only thing that turns a normal agent into a *BYO-gateway* agent is the model deployment name format: **`<connection-name>/<model-name>`** (e.g. `litellm-gateway/gpt-4o-mini`).
 
+## What a Model Gateway connection supports
+
+This is the key question for a BYO gateway: once LiteLLM is connected, **how much of Foundry can you actually use through it?** Per the [BYO model docs](https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway):
+
+| Foundry capability | Through the gateway? | What it means |
+| --- | --- | --- |
+| **Models** | ✅ Yes | Your LiteLLM models appear as **admin-connected deployments** (`<connection>/<model>`) implementing the OpenAI chat-completions API. Supports **static** discovery (models listed in connection metadata, as in this lab) and **dynamic** discovery (models listed by the gateway at runtime). |
+| **Tools** | ✅ Yes (Foundry-side) | The agent's tools run in **Foundry's** agent runtime, not in LiteLLM — supported tools include **Code Interpreter, Functions, File Search, OpenAPI, Foundry IQ, SharePoint Grounding, Fabric Data Agent, MCP, and Browser Automation**. Foundry calls *your* model for the reasoning turns and executes the tools itself. |
+| **Agents** | ⚠️ Prompt agents only | Only **prompt agents in the Agent SDK** can use a BYO-gateway model today. Other/hosted agent types are not yet supported. |
+| **Control plane** | ⚠️ Foundry governs it, not LiteLLM | The connection lives in **Foundry's** control plane (Admin console → **Admin-connected models**), so admins approve and manage it centrally. LiteLLM stays a **data-plane model backend** — it does **not** become Foundry's governance/quota plane (for that, use APIM — Parts 1–3). |
+
+So the BYO-gateway connection gives you **models + Foundry-native agent tools + (prompt) agents**, all governed from **Foundry's** control plane, while your gateway keeps doing routing/auth/observability on the model traffic.
+
 ## Deploy it
 
 This deploys the container, grants it `Cognitive Services User` on both Foundry accounts, and creates the `ModelGateway` connection — all from [infra/litellm-foundry.bicep](infra/litellm-foundry.bicep):
@@ -458,9 +471,9 @@ python ../src/test/agent_foundry_litellm.py
 
 </div>
 
-<div class="warning" data-title="Preview feature">
+<div class="warning" data-title="Preview feature & limits">
 
-> The *bring your own model* / Model Gateway connection is in **preview** (CLI/Bicep only, no portal UI yet; **prompt agents** only). Tool/responsible-AI mitigations for the BYO model are **your** responsibility. See the [BYO model docs](https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway).
+> The *bring your own model* / Model Gateway connection is in **preview**. Current limits: **prompt agents only** (Agent SDK); supported agent tools are **Code Interpreter, Functions, File Search, OpenAPI, Foundry IQ, SharePoint Grounding, Fabric Data Agent, MCP, and Browser Automation**; public networking works for both APIM and self-hosted gateways (full network isolation needs the gateway reachable inside the Agent Service VNet). BYO models are **Non-Microsoft Products** — content filters and other responsible-AI mitigations are **your** responsibility. See the [BYO model docs](https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway).
 
 </div>
 

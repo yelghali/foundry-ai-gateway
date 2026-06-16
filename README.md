@@ -91,8 +91,9 @@ The three gateway approaches differ most in **what they can govern**. The matrix
 | **Tools** — execution host | ❌ Client executes the tool | ❌ Client/agent executes the tool | ❌ Client executes the tool |
 | **Agents** — hosted agent runtime | ❌ Not an agent runtime (gateway only) | ✅ Integrates with **Foundry Agent Service** + custom agent registration | ❌ Not an agent runtime |
 | **Agents** — as a model backend for frameworks | ✅ OpenAI-compatible endpoint | ✅ Via Foundry projects | ✅ Point Semantic Kernel/LangChain at the OpenAI-compatible endpoint |
-| **Agents** — backend for **Foundry Agent Service** (BYO gateway connection) | ✅ APIM connection | ✅ Native (Agent Service) | ✅ **Model Gateway** connection — validated (Part 5) |
-| **Foundry control plane** — registered/discoverable | ⚠️ Only when attached as the native AI Gateway | ✅ First-class: per-project quotas, custom agent registration, tool governance | ❌ Independent proxy; **cannot** register in Foundry's control plane |
+| **Agents** — backend for **Foundry Agent Service** (BYO gateway connection) | ✅ APIM connection | ✅ Native (Agent Service) | ✅ **Model Gateway** connection — **prompt agents only**, validated (Part 5) |
+| **Agent tools** through a BYO-gateway model | ✅ Foundry runs the tools | ✅ Foundry runs the tools | ✅ Code Interpreter, Functions, File Search, OpenAPI, Foundry IQ, SharePoint, Fabric, MCP, Browser Automation (run by Foundry) |
+| **Foundry control plane** — registered/discoverable | ⚠️ Only when attached as the native AI Gateway | ✅ First-class: per-project quotas, custom agent registration, tool governance | ⚠️ Model is admin-connected (Foundry governs the connection); LiteLLM itself is **not** a governance plane |
 | **Per-project token limits / quotas** | ⚠️ Custom policy | ✅ Built-in | ⚠️ Virtual-key budgets only |
 | **Observability** | ✅ APIM metrics + GatewayLogs + LLM logging | ✅ Through attached APIM | ⚠️ LiteLLM logs / callbacks |
 | **Portability across providers/clouds** | ⚠️ Azure-centric | ⚠️ Azure-only | ✅ Multi-provider |
@@ -101,8 +102,8 @@ The three gateway approaches differ most in **what they can govern**. The matrix
 ### Bottom line
 
 - **Models + tools (function calling):** all three work. LiteLLM is fully capable as a **model + tool-passthrough gateway** and is the most portable — validated here with **models, tools, and an OpenAI Agents SDK agent** (Entra ID auth, no keys).
-- **Agents:** only the **Foundry native AI Gateway** integrates with the **Foundry Agent Service** and agent/tool *governance*. That said, **Foundry Agent Service can use either gateway as a model backend** via a *bring-your-own* connection — APIM connections or a **Model Gateway** connection for LiteLLM/third-party gateways (validated in Part 5). APIM and LiteLLM are model backends, not agent runtimes.
-- **Foundry control plane:** only **Azure API Management (v2)** can be registered as Foundry's *governance* AI Gateway. A third-party gateway like **LiteLLM cannot** be registered for governance — but it *can* be attached to **Foundry Agent Service** as a Model Gateway connection (Part 5).
+- **Agents:** only the **Foundry native AI Gateway** integrates with the **Foundry Agent Service** and agent/tool *governance*. That said, **Foundry Agent Service can use either gateway as a model backend** via a *bring-your-own* connection — APIM connections or a **Model Gateway** connection for LiteLLM/third-party gateways (validated in Part 5, **prompt agents only**). When an agent uses a BYO-gateway model, Foundry still runs its own **agent tools** (Code Interpreter, Functions, File Search, OpenAPI, Foundry IQ, SharePoint, Fabric, MCP, Browser Automation). APIM and LiteLLM are model backends, not agent runtimes.
+- **Foundry control plane:** only **Azure API Management (v2)** can be registered as Foundry's *governance* AI Gateway. A third-party gateway like **LiteLLM cannot** be a governance plane — but its model *can* be attached to **Foundry Agent Service** as an **admin-connected** Model Gateway connection that **Foundry's** control plane manages (Part 5).
 
 **Guidance:** Use **APIM** (built or native) when you need Foundry-native governance — per-project quotas, agent/tool governance, control-plane registration. Use **LiteLLM** when you want a portable, multi-provider model + function-calling gateway and don't need Foundry's control plane.
 
