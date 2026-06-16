@@ -1,0 +1,42 @@
+# LiteLLM proxy configuration — Bring Your Own AI Gateway for Azure AI Foundry
+#
+# LiteLLM exposes an OpenAI-compatible endpoint (/chat/completions, /embeddings, ...)
+# and routes to Azure AI Foundry model deployments using the azure_ai/ provider.
+#
+# This config demonstrates:
+#   - Multiple Foundry backends (the SAME two regions used by the APIM lab)
+#   - Client-side load balancing / fallbacks across regions (LiteLLM Router)
+#   - Function calling (tools) pass-through — verified supported by azure_ai/
+#
+# Start:  litellm --config config.yaml   (or use docker-compose.yml)
+
+model_list:
+  # ---- gpt-4o-mini on Foundry #1 (e.g. East US 2) ----
+  - model_name: gpt-4o-mini            # the name clients call
+    litellm_params:
+      model: azure_ai/gpt-4o-mini      # azure_ai provider + deployment name
+      api_base: os.environ/FOUNDRY1_API_BASE
+      api_key: os.environ/FOUNDRY1_API_KEY
+      rpm: 1000
+
+  # ---- gpt-4o-mini on Foundry #2 (e.g. Sweden Central) ----
+  - model_name: gpt-4o-mini            # same public name => LiteLLM load balances
+    litellm_params:
+      model: azure_ai/gpt-4o-mini
+      api_base: os.environ/FOUNDRY2_API_BASE
+      api_key: os.environ/FOUNDRY2_API_KEY
+      rpm: 1000
+
+router_settings:
+  routing_strategy: simple-shuffle     # spread load across the two regions
+  num_retries: 2                       # retry on 429/5xx (transparent to caller)
+  allowed_fails: 1
+  cooldown_time: 30                    # seconds to cool down a failing deployment
+
+litellm_settings:
+  drop_params: true
+  # Optional: turn on detailed logging while testing the POC
+  # set_verbose: true
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY   # virtual key used by clients

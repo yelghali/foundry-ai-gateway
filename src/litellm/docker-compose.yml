@@ -1,0 +1,21 @@
+# LiteLLM proxy as a "bring your own" AI gateway in front of Azure AI Foundry.
+# Usage:
+#   1. cp .env.example .env  and fill in the values (see infra outputs)
+#   2. docker compose up
+#   3. Call http://localhost:4000/v1/chat/completions with the LITELLM_MASTER_KEY
+services:
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: litellm-foundry-gateway
+    ports:
+      - "4000:4000"
+    environment:
+      - FOUNDRY1_API_BASE=${FOUNDRY1_API_BASE}
+      - FOUNDRY1_API_KEY=${FOUNDRY1_API_KEY}
+      - FOUNDRY2_API_BASE=${FOUNDRY2_API_BASE}
+      - FOUNDRY2_API_KEY=${FOUNDRY2_API_KEY}
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    restart: unless-stopped

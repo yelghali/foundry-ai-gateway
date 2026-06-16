@@ -1,0 +1,27 @@
+# Deployment artifacts / captured CLI output (may contain secrets)
+infra/*.out
+infra/*.err
+infra/*_exit.txt
+infra/outputs.txt
+infra/params.json
+infra/acct*.json
+infra/*_ascii.txt
+infra/main.json
+
+# Secrets / env
+**/.env
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Misc temp
+gitstatus*.txt
