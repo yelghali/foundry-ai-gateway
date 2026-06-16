@@ -1,31 +1,44 @@
 # LiteLLM proxy configuration — Bring Your Own AI Gateway for Azure AI Foundry
 #
 # LiteLLM exposes an OpenAI-compatible endpoint (/chat/completions, /embeddings, ...)
-# and routes to Azure AI Foundry model deployments using the azure_ai/ provider.
+# and routes to two Azure AI Foundry gpt-4o-mini deployments (the SAME two regions used
+# by the APIM lab), giving you client-side load balancing + fallbacks.
 #
-# This config demonstrates:
-#   - Multiple Foundry backends (the SAME two regions used by the APIM lab)
-#   - Client-side load balancing / fallbacks across regions (LiteLLM Router)
-#   - Function calling (tools) pass-through — verified supported by azure_ai/
+# AUTH: the lab's Foundry accounts have local (API-key) auth DISABLED, so this config
+# authenticates with **Microsoft Entra ID** using an Azure AD token (no keys). Mint a
+# token with the Azure CLI and export it as AZURE_AD_TOKEN (see .env.example):
+#   az account get-access-token --resource https://cognitiveservices.azure.com --query accessToken -o tsv
+# (If your Foundry accounts allow local auth, swap azure_ad_token for `api_key:` instead.)
 #
-# Start:  litellm --config config.yaml   (or use docker-compose.yml)
+# This config demonstrates MODELS + TOOLS + AGENTS:
+#   - Models: two regional gpt-4o-mini backends behind one OpenAI-compatible endpoint
+#   - Tools:  function calling (tools / tool_choice) passes straight through
+#   - Agents: any agent framework can use this endpoint as its model backend
+#
+# Start (no Docker needed):  litellm --config config.yaml --port 4000
 
 model_list:
-  # ---- gpt-4o-mini on Foundry #1 (e.g. East US 2) ----
+  # ---- gpt-4o-mini on Foundry #1 (East US 2) ----
   - model_name: gpt-4o-mini            # the name clients call
     litellm_params:
-      model: azure_ai/gpt-4o-mini      # azure_ai provider + deployment name
+      model: azure/gpt-4o-mini         # azure (Azure OpenAI) provider + deployment name
       api_base: os.environ/FOUNDRY1_API_BASE
-      api_key: os.environ/FOUNDRY1_API_KEY
+      api_version: os.environ/AZURE_API_VERSION
+      azure_ad_token: os.environ/AZURE_AD_TOKEN   # Entra ID bearer token — no API key
       rpm: 1000
+    model_info:
+      base_model: azure/gpt-4o-mini   # for accurate cost / token tracking
 
-  # ---- gpt-4o-mini on Foundry #2 (e.g. Sweden Central) ----
+  # ---- gpt-4o-mini on Foundry #2 (Sweden Central) ----
   - model_name: gpt-4o-mini            # same public name => LiteLLM load balances
     litellm_params:
-      model: azure_ai/gpt-4o-mini
+      model: azure/gpt-4o-mini
       api_base: os.environ/FOUNDRY2_API_BASE
-      api_key: os.environ/FOUNDRY2_API_KEY
+      api_version: os.environ/AZURE_API_VERSION
+      azure_ad_token: os.environ/AZURE_AD_TOKEN
       rpm: 1000
+    model_info:
+      base_model: azure/gpt-4o-mini
 
 router_settings:
   routing_strategy: simple-shuffle     # spread load across the two regions

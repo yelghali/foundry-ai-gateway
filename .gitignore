@@ -12,6 +12,12 @@ infra/main.json
 **/.env
 .env
 
+# LiteLLM / test scratch output (may contain tokens)
+src/litellm/proxy.*
+src/litellm/_diag.py
+src/test/*.txt
+src/test/out*.txt
+
 # Python
 __pycache__/
 *.pyc

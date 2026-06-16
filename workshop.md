@@ -51,7 +51,7 @@ To complete the hands-on parts you need:
 - An **Azure subscription** with **Owner** (or **Contributor** + **Role Based Access Control Administrator**) on a resource group. The lab creates role assignments, so plain Contributor is not enough.
 - **Azure CLI** installed and signed in: `az login`.
 - **Python 3.10+** for the test scripts.
-- *(Part 4 only)* **Docker** to run the LiteLLM container.
+- *(Part 4 only)* **Python 3.10+** to run the LiteLLM proxy (`pip install "litellm[proxy]"`). Docker is optional.
 - Quota for the **`gpt-4o-mini`** model (GlobalStandard) in **two regions** — this lab uses `eastus2` and `swedencentral`. Check the [model availability by region](https://learn.microsoft.com/azure/ai-services/openai/concepts/models).
 
 <div class="warning" data-title="Cost & SKU">
@@ -71,8 +71,14 @@ foundry-ai-gateway/
 │   ├── deploy.ps1           # one-command deploy
 │   └── cleanup.ps1          # tear down
 └── src/
-    ├── test/                # Python test scripts
-    └── litellm/             # BYO gateway (Part 4)
+    ├── test/                # Python samples & tests
+    │   ├── test_load_balancing.py   # APIM: shows the region serving each request
+    │   ├── test_burst.py            # APIM: concurrent burst that forces failover
+    │   ├── sample_openai_apim.py    # APIM: OpenAI SDK (AzureOpenAI) client
+    │   ├── agent_apim.py            # APIM: OpenAI Agents SDK agent + tool
+    │   ├── test_litellm_tools.py    # LiteLLM: models + tools (function calling)
+    │   └── agent_litellm.py         # LiteLLM: OpenAI Agents SDK agent + tool
+    └── litellm/             # BYO gateway (Part 4): config.yaml, docker-compose.yml, .env.example
 ```
 
 ---
@@ -146,6 +152,22 @@ python ../src/test/test_load_balancing.py
 ```
 
 With 20 small, spaced-out requests you will likely see **all traffic stay on the priority-1 region** — the load is well under the 8K-TPM cap, so there is nothing to fail over from. That confirms routing and managed-identity auth work, but to *see the failover* you need to exhaust priority 1.
+
+<div class="info" data-title="Call it with the OpenAI SDK or an agent framework">
+
+> The gateway is a normal **Azure OpenAI-compatible** endpoint, so any SDK or agent framework can use it as a model backend:
+>
+> ```powershell
+> # Official OpenAI SDK (AzureOpenAI client) → APIM
+> python ../src/test/sample_openai_apim.py
+>
+> # OpenAI Agents SDK: an agent with a tool, running on the load-balanced gateway
+> python ../src/test/agent_apim.py
+> ```
+>
+> [agent_apim.py](src/test/agent_apim.py) runs a real **agent framework** (OpenAI Agents SDK) whose model backend is the APIM AI gateway — proving APIM is a drop-in OpenAI-compatible backend for agents (it load balances + authenticates with managed identity), even though APIM itself is not an agent *runtime*. Validated output: the agent called its `get_exchange_rate` tool and answered *"250 US dollars is approximately 230 euros and 197.50 pounds."*
+
+</div>
 
 ## Force a failover (burst test)
 
@@ -274,43 +296,81 @@ In the APIM instance, open **Monitoring** > **Metrics** → **Requests**, make a
 
 # Part 4 — Bring your own gateway (LiteLLM)
 
-Can you put a **third-party** gateway in front of Foundry instead of APIM? This part is a POC with the popular open-source [**LiteLLM**](https://docs.litellm.ai/) proxy, which exposes an **OpenAI-compatible** endpoint and routes to many providers — including Azure AI Foundry via its **`azure_ai/`** provider.
+Can you put a **third-party** gateway in front of Foundry instead of APIM? This part is a POC with the popular open-source [**LiteLLM**](https://docs.litellm.ai/) proxy, which exposes an **OpenAI-compatible** endpoint and routes to many providers — including Azure AI Foundry.
 
 The configuration in [src/litellm/config.yaml](src/litellm/config.yaml) reuses the **same two Foundry regions** and load-balances across them with LiteLLM's router (retries, cooldowns, fallbacks) — mirroring Part 1, but client-side.
 
+<div class="important" data-title="Auth: Entra ID, not keys">
+
+> This lab's Foundry accounts have **local (API-key) auth disabled** (a common, secure default — often enforced by Azure Policy). So LiteLLM authenticates with **Microsoft Entra ID** using an Azure AD bearer token, *not* an API key. LiteLLM's `azure/` provider reads the token from the `AZURE_AD_TOKEN` environment variable.
+
+</div>
+
 ## Run it
+
+You don't need Docker — run the proxy straight from `pip`:
 
 ```powershell
 cd ../src/litellm
-cp .env.example .env   # then fill FOUNDRY1/2_API_BASE + keys from the infra outputs
-docker compose up
+pip install "litellm[proxy]"
+
+# 1) Fill in .env (endpoints are the account's Azure OpenAI URL; mint a short-lived Entra token)
+cp .env.example .env   # set FOUNDRY1/2_API_BASE = https://<account>.openai.azure.com/
+$tok = az account get-access-token --resource https://cognitiveservices.azure.com --query accessToken -o tsv
+# put $tok into the AZURE_AD_TOKEN line of .env
+
+# 2) Export the .env values into the shell, then start the proxy
+Get-Content .env | ForEach-Object { if ($_ -match '^([^#=]+)=(.*)$') { Set-Item -Path "env:$($matches[1])" -Value $matches[2] } }
+litellm --config config.yaml --port 4000
 ```
 
-Get the values:
+<div class="warning" data-title="Export the env vars before launching">
+
+> The proxy resolves `os.environ/...` references and reads `AZURE_AD_TOKEN` from its **process environment** — it does **not** auto-load `.env`. Export the variables in the same shell first (the `Get-Content .env | ...` line above), or `litellm` will start but every call fails with *"Missing credentials"* and the deployments drop into cooldown. (Docker users get this for free — `docker compose` injects the `.env`.)
+
+</div>
+
+The endpoints come from the deployment; mint the token with the Azure CLI (valid ~1 hour):
 
 ```powershell
-# api_base is the account endpoint + /models, e.g. https://foundry1-xxxx.services.ai.azure.com/models
-az cognitiveservices account keys list -g lab-foundry-ai-gateway -n <foundry-account-name>
+az cognitiveservices account show -g lab-foundry-ai-gateway -n <foundry-account-name> --query "properties.endpoints"
+az account get-access-token --resource https://cognitiveservices.azure.com --query accessToken -o tsv
 ```
 
-## Test models *and* tools
+## Test models, tools, *and* agents
+
+In a second terminal:
 
 ```powershell
 pip install -r ../test/requirements.txt
 $env:LITELLM_BASE_URL  = "http://localhost:4000"
 $env:LITELLM_MASTER_KEY = "sk-litellm-local-poc"
-python ../test/test_litellm_tools.py
+
+python ../test/test_litellm_tools.py   # plain chat + function calling (models + tools)
+python ../test/agent_litellm.py        # OpenAI Agents SDK agent (models + tools + agent loop)
 ```
 
-The script runs a **plain chat completion** and a **function-calling** request.
+<div class="tip" data-title="Real result from this lab">
+
+> Against the LiteLLM proxy (Entra ID auth, two Foundry regions), validated end to end:
+>
+> ```
+> test_litellm_tools.py  -> "Hello!"  +  tool call get_current_weather(location="Boston, MA")
+> agent_litellm.py       -> "250 US dollars is approximately 230 euros and 197.50 pounds."
+> ```
+>
+> The proxy returned **HTTP 200** for every call. The agent script is the *same* OpenAI Agents SDK code as [agent_apim.py](src/test/agent_apim.py) — only the base URL changes — proving the BYO gateway is a drop-in OpenAI-compatible backend for **models + tools + agents**.
+
+</div>
 
 ## Findings: models, tools, and agents
 
 <div class="important" data-title="POC conclusion">
 
-> - ✅ **Models** — LiteLLM proxies Foundry chat/completions and embeddings via `azure_ai/`, and can **load balance and fail over** across regions just like the APIM backend pool.
-> - ✅ **Tools (function calling)** — LiteLLM passes `tools`/`tool_choice` through to the model and returns `tool_calls`. **Client-side** tool orchestration works. The model returns *which* tool to call; **your application still executes the tool** (LiteLLM does not host the tools).
-> - ⚠️ **Agents** — LiteLLM is a **model gateway**, not an agent runtime. It can serve as the **model backend** for an agent framework (Semantic Kernel, LangChain, etc. pointed at the OpenAI-compatible endpoint), but it does **not** replace the **Foundry Agent Service** (server-side hosted agents, threads, hosted tools) nor the **native Foundry AI Gateway** governance plane (per-project token limits, custom agent registration, MCP/A2A tool governance from Part 3).
+> - ✅ **Models** — LiteLLM proxies Foundry chat/completions and embeddings, and can **load balance and fail over** across regions just like the APIM backend pool.
+> - ✅ **Tools (function calling)** — LiteLLM passes `tools`/`tool_choice` through to the model and returns `tool_calls` (validated: `get_current_weather`). **Client-side** tool orchestration works. The model returns *which* tool to call; **your application still executes the tool** (LiteLLM does not host the tools).
+> - ✅ **Agents (as a model backend)** — validated by running the **OpenAI Agents SDK** ([agent_litellm.py](src/test/agent_litellm.py)) on top of the proxy: the agent completed a full tool-calling loop and composed the final answer. LiteLLM is **not** an agent *runtime*, but it is a fine **model backend** for any agent framework (OpenAI Agents SDK, Semantic Kernel, LangChain, …).
+> - ⚠️ **Hosted agents / governance** — LiteLLM does **not** replace the **Foundry Agent Service** (server-side hosted agents, threads, hosted tools) nor the **native Foundry AI Gateway** governance plane (per-project token limits, custom agent registration, MCP/A2A tool governance from Part 3).
 > - 🔒 **Native integration** — Foundry's **Admin console AI Gateway only attaches Azure API Management (v2)**. A third-party gateway like LiteLLM cannot register there; it sits in front as an independent proxy and is **not** discoverable/governable by Foundry's control plane.
 
 </div>
@@ -321,8 +381,9 @@ The script runs a **plain chat completion** and a **function-calling** request.
 |---|---|---|
 | Load balance Foundry models across regions | ✅ Backend pool | ✅ Router |
 | Retry / failover on 429 | ✅ Policy + circuit breaker | ✅ num_retries / cooldown |
-| Managed-identity auth to Foundry (no keys) | ✅ | ❌ (uses keys/AAD token) |
+| Managed-identity auth to Foundry (no keys) | ✅ | ⚠️ Entra ID token (no keys, but client-managed) |
 | Function-calling (tools) pass-through | ✅ | ✅ |
+| Agent framework as a model backend | ✅ OpenAI-compatible | ✅ OpenAI-compatible |
 | Govern external MCP tool servers | ✅ | ❌ |
 | Per-project token limits / quotas | ✅ (native AI Gateway) | ⚠️ virtual-key budgets only |
 | Registered in Foundry control plane | ✅ | ❌ |
@@ -340,14 +401,14 @@ cd infra
 # or: az group delete --name lab-foundry-ai-gateway --yes --no-wait
 ```
 
-For Part 4, stop the container with `docker compose down`. If you enabled the native AI Gateway (Part 3), first **remove projects from the gateway** and **delete the AI Gateway** in the Foundry Admin console, then delete the APIM instance.
+For Part 4, stop the proxy with `Ctrl+C` (or `docker compose down` if you used Docker). If you enabled the native AI Gateway (Part 3), first **remove projects from the gateway** and **delete the AI Gateway** in the Foundry Admin console, then delete the APIM instance.
 
 <div class="tip" data-title="What you learned">
 
 > - Built an **APIM AI gateway** that load balances a Foundry model across regions with priority routing, circuit breakers, and transparent retries.
 > - **Governed an MCP server** (Microsoft Learn) through APIM policies.
 > - Enabled **Foundry's native AI Gateway** for per-project token governance.
-> - POC'd a **bring-your-own LiteLLM** gateway and mapped exactly where it fits — models and tools, but not Foundry-native agent governance.
+> - POC'd a **bring-your-own LiteLLM** gateway (Entra ID auth) and mapped exactly where it fits — validated **models, tools, and agents** (OpenAI Agents SDK), but not Foundry-native agent governance.
 
 </div>
 

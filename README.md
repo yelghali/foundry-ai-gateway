@@ -22,10 +22,15 @@ foundry-ai-gateway/
 │   └── cleanup.ps1          # tear down
 └── src/
     ├── test/
-    │   ├── test_load_balancing.py   # hits APIM, shows the region serving each request│   │   ├── test_burst.py            # concurrent burst that forces priority failover    │   ├── test_litellm_tools.py    # proves LiteLLM handles models + tools
+    │   ├── test_load_balancing.py   # APIM: shows the region serving each request
+    │   ├── test_burst.py            # APIM: concurrent burst that forces failover
+    │   ├── sample_openai_apim.py    # APIM: OpenAI SDK (AzureOpenAI) client
+    │   ├── agent_apim.py            # APIM: OpenAI Agents SDK agent + tool
+    │   ├── test_litellm_tools.py    # LiteLLM: models + tools (function calling)
+    │   ├── agent_litellm.py         # LiteLLM: OpenAI Agents SDK agent + tool
     │   └── requirements.txt
     └── litellm/
-        ├── config.yaml      # LiteLLM proxy config (2 Foundry regions, router)
+        ├── config.yaml      # LiteLLM proxy config (2 Foundry regions, Entra ID auth)
         ├── docker-compose.yml
         └── .env.example
 ```
@@ -49,12 +54,17 @@ $env:APIM_GATEWAY_URL = "<apimResourceGatewayURL>"
 $env:APIM_API_KEY      = "<subscription key>"
 python ../src/test/test_load_balancing.py     # steady traffic (stays on priority 1)
 python ../src/test/test_burst.py              # concurrent burst -> forces failover
+python ../src/test/sample_openai_apim.py      # OpenAI SDK (AzureOpenAI) -> APIM
+python ../src/test/agent_apim.py              # OpenAI Agents SDK agent + tool -> APIM
 
 # 4. Clean up when done
 ./cleanup.ps1
 ```
 
-> **Validated:** A 60-request concurrent burst against the deployed gateway returned **60 × HTTP 200** (the retry policy absorbed every 429) with the load splitting **East US 2: 39 / Sweden Central: 21** — priority-1 served traffic until its 8K-TPM cap, then APIM failed over to priority-2 automatically.
+> **Validated end to end** against the deployed gateway:
+> - **Load balancing + failover** — a 60-request concurrent burst returned **60 × HTTP 200** (the retry policy absorbed every 429) splitting **East US 2: 39 / Sweden Central: 21** — priority-1 served traffic until its 8K-TPM cap, then APIM failed over to priority-2.
+> - **OpenAI SDK + agent** — `sample_openai_apim.py` (official SDK) and `agent_apim.py` (OpenAI Agents SDK with a tool) both ran on the gateway; the agent answered *"250 US dollars is approximately 230 euros and 197.50 pounds"* after calling its tool.
+> - **LiteLLM BYO (Entra ID auth)** — `test_litellm_tools.py` returned a chat reply **and** a `get_current_weather` tool call; `agent_litellm.py` ran the same agent on LiteLLM — proving **models + tools + agents**.
 
 ## Integration features comparison
 
@@ -63,7 +73,7 @@ The three gateway approaches differ most in **what they can govern**. The matrix
 | Integration feature | **APIM AI gateway** (you build — Parts 1–2) | **Foundry native AI Gateway** (Part 3) | **LiteLLM** — bring your own (Part 4) |
 |---|---|---|---|
 | **Models** — chat/completions & embeddings | ✅ Load balanced across regions via backend pool, circuit breaker, retry policy | ✅ Routed through attached APIM v2 with per-project token limits | ✅ Routed via `azure_ai/` provider; client-side router for LB/fallback |
-| **Models** — auth to Foundry | ✅ APIM **managed identity** (no keys in policy) | ✅ Managed by the platform | ⚠️ API key or AAD token in proxy config |
+| **Models** — auth to Foundry | ✅ APIM **managed identity** (no keys in policy) | ✅ Managed by the platform | ✅ **Entra ID** bearer token (no keys); API key also supported if local auth is on |
 | **Tools** — function calling pass-through | ✅ Passed through to the model | ✅ Passed through to the model | ✅ `tools`/`tool_choice` pass-through; returns `tool_calls` |
 | **Tools** — govern external MCP servers | ✅ Expose/govern MCP (e.g. Learn MCP) with policies | ✅ MCP/A2A tool governance via control plane | ❌ Not an MCP governance layer |
 | **Tools** — execution host | ❌ Client executes the tool | ❌ Client/agent executes the tool | ❌ Client executes the tool |
@@ -77,7 +87,7 @@ The three gateway approaches differ most in **what they can govern**. The matrix
 
 ### Bottom line
 
-- **Models + tools (function calling):** all three work. LiteLLM is fully capable as a **model + tool-passthrough gateway** and is the most portable.
+- **Models + tools (function calling):** all three work. LiteLLM is fully capable as a **model + tool-passthrough gateway** and is the most portable — validated here with **models, tools, and an OpenAI Agents SDK agent** (Entra ID auth, no keys).
 - **Agents:** only the **Foundry native AI Gateway** integrates with the **Foundry Agent Service** and agent/tool governance. APIM and LiteLLM serve as the **model backend** for agent frameworks but are not agent runtimes.
 - **Foundry control plane:** only **Azure API Management (v2)** can be registered as Foundry's AI Gateway. A third-party gateway like **LiteLLM cannot** be registered/discovered by Foundry's control plane — it sits in front as an independent proxy.
 
