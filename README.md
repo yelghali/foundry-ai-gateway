@@ -1,11 +1,33 @@
 # APIM ❤️ Azure AI Foundry — Building an AI Gateway
 
-A hands-on **MOAW lab** showing four complementary ways to put an *AI gateway* in front of [Azure AI Foundry](https://learn.microsoft.com/azure/ai-foundry/):
+A hands-on **MOAW lab** showing five complementary ways to put an *AI gateway* in front of [Azure AI Foundry](https://learn.microsoft.com/azure/ai-foundry/):
 
 1. **Azure API Management (APIM) as an AI gateway** — load balance one model across **two Foundry regions** with a backend pool, priority/weight routing, circuit breakers, and transparent 429 retries.
 2. **MCP governance** — expose and govern the **Microsoft Learn MCP server** through APIM.
 3. **Foundry native AI Gateway** — the built-in portal experience that attaches an APIM **v2** instance to a Foundry resource for per-project token limits.
 4. **Bring your own gateway** — a proof-of-concept with the open-source **LiteLLM** proxy in front of Foundry.
+5. **Bring your own gateway *into* Foundry** — register your gateway with **Foundry Agent Service** as a connection (your APIM as an `ApiManagement` connection, or LiteLLM as a `ModelGateway` connection) so agents run their models through it.
+
+```mermaid
+flowchart LR
+    App[Apps and SDKs]
+    Agent[Foundry Agent Service]
+
+    App -->|api-key| APIM[APIM AI Gateway<br/>Parts 1-3]
+    App -->|OpenAI-compatible| LLM[LiteLLM proxy<br/>Part 4]
+
+    Agent -->|ApiManagement connection · Part 5| APIM
+    Agent -->|ModelGateway connection · Part 5| LLM
+
+    APIM --> Pool{{Backend pool<br/>priority + retry}}
+    Pool -->|priority 1| F1[Foundry · East US 2<br/>gpt-4o-mini]
+    Pool -->|priority 2| F2[Foundry · Sweden Central<br/>gpt-4o-mini]
+
+    LLM -->|router retry/cooldown| F1
+    LLM --> F2
+
+    APIM -.->|Part 2: govern| MCP[(Microsoft Learn<br/>MCP server)]
+```
 
 The full, step-by-step workshop is in **[workshop.md](workshop.md)** (MOAW format).
 
@@ -13,7 +35,7 @@ The full, step-by-step workshop is in **[workshop.md](workshop.md)** (MOAW forma
 
 ```
 foundry-ai-gateway/
-├── workshop.md              # MOAW lab (front matter + 4 sections)
+├── workshop.md              # MOAW lab (front matter + 5 parts)
 ├── README.md                # this file
 ├── infra/
 │   ├── main.bicep           # APIM Standard v2 + 2 Foundry regions + backend pool + inference API

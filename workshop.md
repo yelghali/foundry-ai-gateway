@@ -3,7 +3,7 @@ published: false
 type: workshop
 title: APIM ❤️ Azure AI Foundry — Building an AI Gateway
 short_title: APIM AI Gateway Lab
-description: Load balance Azure AI Foundry models across regions with Azure API Management, govern the Microsoft Learn MCP server, enable Foundry's native AI Gateway, and POC a bring-your-own LiteLLM gateway.
+description: Load balance Azure AI Foundry models across regions with Azure API Management, govern the Microsoft Learn MCP server, enable Foundry's native AI Gateway, POC a bring-your-own LiteLLM gateway, and connect your own gateway into Foundry Agent Service.
 level: intermediate
 authors:
   - Microsoft AI Gateway Lab
@@ -26,21 +26,40 @@ sections_title:
 
 As organizations adopt generative AI, a single model endpoint quickly becomes a bottleneck for **resilience**, **cost control**, and **governance**. An *AI gateway* sits between your applications and your AI models to add load balancing, retries, token limits, observability, and policy enforcement — without changing client code.
 
-This workshop walks through **four complementary patterns** for building an AI gateway in front of [Azure AI Foundry](https://learn.microsoft.com/azure/ai-foundry/):
+This workshop walks through **five complementary patterns** for building an AI gateway in front of [Azure AI Foundry](https://learn.microsoft.com/azure/ai-foundry/):
 
 1. **APIM as an AI gateway** — load balance a model across **two Foundry regions** using an Azure API Management backend pool with priority/weight routing and automatic 429 failover.
 2. **MCP governance** — expose and govern the **Microsoft Learn MCP server** through APIM so agents consume tools through your gateway.
 3. **Foundry's native AI Gateway** — the built-in portal experience that attaches an APIM v2 instance to a Foundry resource for per-project token limits.
 4. **Bring your own gateway** — a proof-of-concept deploying the open-source **LiteLLM** proxy in front of Foundry, and what it can (and cannot) do.
-5. **Bring your own gateway *into* Foundry** — connect that LiteLLM proxy to **Foundry Agent Service** as a **Model Gateway** connection, so Foundry agents run their models through your gateway.
+5. **Bring your own gateway *into* Foundry** — register a gateway with **Foundry Agent Service** as a connection (your **APIM** as an `ApiManagement` connection, *or* **LiteLLM** as a `ModelGateway` connection), so Foundry agents run their models through your gateway.
 
 <div class="info" data-title="What you will build">
 
-> ![architecture](assets/architecture.png)
->
-> A load-balanced inference API in front of two Foundry regions, an MCP server governed by APIM, and a comparison of three gateway approaches.
+> A load-balanced inference API in front of two Foundry regions, the Microsoft Learn MCP server governed by APIM, Foundry's native AI Gateway, and a bring-your-own LiteLLM gateway — plus connecting your gateway **into** Foundry Agent Service.
 
 </div>
+
+```mermaid
+flowchart LR
+    App[Apps and SDKs]
+    Agent[Foundry Agent Service]
+
+    App -->|api-key| APIM[APIM AI Gateway<br/>Parts 1-3]
+    App -->|OpenAI-compatible| LLM[LiteLLM proxy<br/>Part 4]
+
+    Agent -->|ApiManagement connection · Part 5| APIM
+    Agent -->|ModelGateway connection · Part 5| LLM
+
+    APIM --> Pool{{Backend pool<br/>priority + retry}}
+    Pool -->|priority 1| F1[Foundry · East US 2<br/>gpt-4o-mini]
+    Pool -->|priority 2| F2[Foundry · Sweden Central<br/>gpt-4o-mini]
+
+    LLM -->|router retry/cooldown| F1
+    LLM --> F2
+
+    APIM -.->|Part 2: govern| MCP[(Microsoft Learn<br/>MCP server)]
+```
 
 By the end you will understand the trade-offs between using **Azure-native AI Gateway capabilities** and a **third-party gateway**, and you will have working infrastructure to demonstrate each.
 
@@ -423,9 +442,11 @@ We implement **both**: the APIM connection reuses the gateway you already built,
 
 ## The pattern
 
-```
-Foundry Agent Service ──> Model Gateway connection ──> LiteLLM (Container Apps) ──> Foundry models (2 regions)
-        (prompt agent)        (category: ModelGateway)      (managed identity / Entra ID)
+```mermaid
+flowchart LR
+    Agent[Foundry Agent Service<br/>prompt agent] -->|ModelGateway connection| LLM[LiteLLM<br/>Container Apps]
+    LLM -->|managed identity / Entra ID| F1[Foundry · East US 2]
+    LLM --> F2[Foundry · Sweden Central]
 ```
 
 The only thing that turns a normal agent into a *BYO-gateway* agent is the model deployment name format: **`<connection-name>/<model-name>`** (e.g. `litellm-gateway/gpt-4o-mini`).
@@ -487,9 +508,12 @@ python ../src/test/agent_foundry_litellm.py
 
 If your gateway is the **APIM** instance from Parts 1–3, you don't need a container at all — register APIM directly as an **`ApiManagement`** connection. Foundry knows APIM's Azure-OpenAI conventions, so it builds `/deployments/{name}/chat/completions` for you.
 
-```
-Foundry Agent Service ──> ApiManagement connection ──> APIM (Parts 1–3) ──> Foundry models (2 regions)
-        (prompt agent)        (category: ApiManagement)     (backend pool / load balance / retry)
+```mermaid
+flowchart LR
+    Agent[Foundry Agent Service<br/>prompt agent] -->|ApiManagement connection| APIM[APIM<br/>Parts 1-3]
+    APIM --> Pool{{Backend pool<br/>load balance / retry}}
+    Pool -->|priority 1| F1[Foundry · East US 2]
+    Pool -->|priority 2| F2[Foundry · Sweden Central]
 ```
 
 [infra/apim-foundry.bicep](infra/apim-foundry.bicep) creates the connection on the Foundry account, pointing `target` at the APIM inference API (`{gateway}/inference/openai`) and authenticating with an existing **APIM subscription key** (`api-key` header — the APIM-connection default). Key metadata: `deploymentInPath: "true"` (path-based Azure-OpenAI routing) and `inferenceAPIVersion`.
