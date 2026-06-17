@@ -28,18 +28,28 @@ sections_title:
 
 As organizations adopt generative AI, a single model endpoint quickly becomes a bottleneck for **resilience**, **cost control**, and **governance**. An *AI gateway* sits between your applications and your AI models to add load balancing, retries, token limits, observability, and policy enforcement — without changing client code.
 
-This workshop walks through **six complementary patterns** for building an AI gateway in front of [Azure AI Foundry](https://learn.microsoft.com/azure/ai-foundry/):
+This workshop **builds five gateway patterns (Parts 1–5), then proves them with four client scenarios (Part 6)**. The build parts are the setup; **the scenarios are the point** — each one is a working client that reaches the same enterprise **model**, **MCP tool**, and **A2A agent** through a gateway, so you see exactly what works end to end.
+
+**Build the gateways (Parts 1–5):**
 
 1. **APIM as an AI gateway** — load balance a model across **two Foundry regions** using an Azure API Management backend pool with priority/weight routing and automatic 429 failover.
 2. **MCP governance** — expose and govern the **Microsoft Learn MCP server** through APIM so agents consume tools through your gateway. The same passthrough pattern also governs an **A2A (Agent2Agent) agent**, so one agent calls another *through* your gateway.
 3. **Foundry's native AI Gateway** — the built-in portal experience that attaches an APIM v2 instance to a Foundry resource for per-project token limits.
 4. **Bring your own gateway** — a proof-of-concept deploying the open-source **LiteLLM** proxy in front of Foundry, and what it can (and cannot) do.
 5. **Bring your own gateway *into* Foundry** — register a gateway with **Foundry Agent Service** as a connection (your **APIM** as an `ApiManagement` connection, *or* **LiteLLM** as a `ModelGateway` connection), so Foundry agents run their models through your gateway.
-6. **Consume the gateways as a client** — four scenarios (0–3) that reach the same enterprise model, MCP tool and A2A specialist, contrasting a **local app** with a **Foundry agent** over the same remote gateway.
+
+**Consume them — the four scenarios (Part 6):**
+
+| Scenario | Client | Gateway | Result (model · tool · A2A) |
+| --- | --- | --- | --- |
+| **0** | local **Microsoft Agent Framework** app (no Foundry) | APIM | ✅ · ✅ · ✅ |
+| **1** | **Foundry agent** | APIM (`ApiManagement` + key) | ✅ · ✅ · ✅ |
+| **2** | **Foundry agent** | APIM (`ApiManagement` + managed identity) | ⚠️ MI→key · ✅ · ✅ |
+| **3** | **Foundry agent** | **LiteLLM** (`ModelGateway`) | ✅ · ✅ · ✅ |
 
 ![Overview: apps and Foundry Agent Service reach Foundry models through APIM (Parts 1-3) or LiteLLM (Part 4), load-balanced across two Foundry regions; APIM also governs the Microsoft Learn MCP server.](assets/overview.drawio.svg)
 
-By the end you will understand the trade-offs between using **Azure-native AI Gateway capabilities** and a **third-party gateway**, and you will have working infrastructure to demonstrate each.
+By the end you will understand the trade-offs between **Azure-native AI Gateway capabilities** and a **third-party gateway**, and you will have run all four scenarios against working infrastructure.
 
 ---
 
