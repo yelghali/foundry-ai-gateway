@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="764" height="169" viewBox="0 0 764 169" content="&lt;mxfile host=&quot;app.diagrams.net&quot; type=&quot;device&quot;&gt;&lt;diagram id=&quot;page1&quot; name=&quot;Page-1&quot;&gt;&lt;mxGraphModel dx=&quot;900&quot; dy=&quot;600&quot; grid=&quot;0&quot; gridSize=&quot;10&quot; guides=&quot;1&quot; tooltips=&quot;1&quot; connect=&quot;1&quot; arrows=&quot;1&quot; fold=&quot;1&quot; page=&quot;1&quot; pageScale=&quot;1&quot; pageWidth=&quot;850&quot; pageHeight=&quot;500&quot; math=&quot;0&quot; shadow=&quot;0&quot;&gt;&lt;root&gt;&lt;mxCell id=&quot;0&quot;/&gt;&lt;mxCell id=&quot;1&quot; parent=&quot;0&quot;/&gt;&lt;mxCell id=&quot;Agent&quot; value=&quot;Agent / Copilot&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;40&quot; y=&quot;85&quot; width=&quot;150&quot; height=&quot;50&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;APIM&quot; value=&quot;APIM MCP Server&amp;amp;#10;+ policies&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;290&quot; y=&quot;80&quot; width=&quot;170&quot; height=&quot;60&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;Learn&quot; value=&quot;Microsoft Learn&amp;amp;#10;MCP server&quot; style=&quot;shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;fillColor=#ffe6cc;strokeColor=#d79b00;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;570&quot; y=&quot;75&quot; width=&quot;170&quot; height=&quot;70&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;e0&quot; value=&quot;MCP over HTTP&quot; style=&quot;endArrow=classic;html=1;strokeColor=#555555;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;Agent&quot; target=&quot;APIM&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;e1&quot; value=&quot;govern + trace&quot; style=&quot;endArrow=classic;html=1;strokeColor=#555555;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;APIM&quot; target=&quot;Learn&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;/root&gt;&lt;/mxGraphModel&gt;&lt;/diagram&gt;&lt;/mxfile&gt;">
+<defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L9,3 L0,6 Z" fill="#555"/></marker></defs>
+<rect width="100%" height="100%" fill="#ffffff"/>
+<line x1="190" y1="110.0" x2="290" y2="110.0" stroke="#555" stroke-width="1.6" marker-end="url(#arrow)"/>
+<rect x="198.4" y="101.0" width="83.2" height="16" rx="3" fill="#ffffff" stroke="#dddddd" opacity="0.95"/>
+<text x="240.0" y="114.0" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="10.5" fill="#444">MCP over HTTP</text>
+<line x1="460" y1="110.0" x2="570" y2="110.0" stroke="#555" stroke-width="1.6" marker-end="url(#arrow)"/>
+<rect x="470.2" y="101.0" width="89.6" height="16" rx="3" fill="#ffffff" stroke="#dddddd" opacity="0.95"/>
+<text x="515.0" y="114.0" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="10.5" fill="#444">govern + trace</text>
+<rect x="40" y="85" width="150" height="50" rx="8" ry="8" fill="#fff2cc" stroke="#d6b656" stroke-width="1.5"/>
+<text x="115.0" y="110.0" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="12.5" fill="#1a1a1a">
+<tspan x="115.0" dy="0">Agent / Copilot</tspan>
+</text>
+<rect x="290" y="80" width="170" height="60" rx="8" ry="8" fill="#dae8fc" stroke="#6c8ebf" stroke-width="1.5"/>
+<text x="375.0" y="102.0" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="12.5" fill="#1a1a1a">
+<tspan x="375.0" dy="0">APIM MCP Server</tspan>
+<tspan x="375.0" dy="16">+ policies</tspan>
+</text>
+<path d="M 570,86 A 85.0,11 0 0 0 740,86 L 740,134 A 85.0,11 0 0 1 570,134 Z" fill="#ffe6cc" stroke="#d79b00" stroke-width="1.5"/>
+<path d="M 570,86 A 85.0,11 0 0 1 740,86" fill="none" stroke="#d79b00" stroke-width="1.5"/>
+<text x="655.0" y="107.5" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="12.5" fill="#1a1a1a">
+<tspan x="655.0" dy="0">Microsoft Learn</tspan>
+<tspan x="655.0" dy="16">MCP server</tspan>
+</text>
+</svg>

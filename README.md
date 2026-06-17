@@ -8,26 +8,7 @@ A hands-on **MOAW lab** showing five complementary ways to put an *AI gateway* i
 4. **Bring your own gateway** — a proof-of-concept with the open-source **LiteLLM** proxy in front of Foundry.
 5. **Bring your own gateway *into* Foundry** — register your gateway with **Foundry Agent Service** as a connection (your APIM as an `ApiManagement` connection, or LiteLLM as a `ModelGateway` connection) so agents run their models through it.
 
-```mermaid
-flowchart LR
-    App[Apps and SDKs]
-    Agent[Foundry Agent Service]
-
-    App -->|api-key| APIM[APIM AI Gateway<br/>Parts 1-3]
-    App -->|OpenAI-compatible| LLM[LiteLLM proxy<br/>Part 4]
-
-    Agent -->|ApiManagement connection · Part 5| APIM
-    Agent -->|ModelGateway connection · Part 5| LLM
-
-    APIM --> Pool{{Backend pool<br/>priority + retry}}
-    Pool -->|priority 1| F1[Foundry · East US 2<br/>gpt-4o-mini]
-    Pool -->|priority 2| F2[Foundry · Sweden Central<br/>gpt-4o-mini]
-
-    LLM -->|router retry/cooldown| F1
-    LLM --> F2
-
-    APIM -.->|Part 2: govern| MCP[(Microsoft Learn<br/>MCP server)]
-```
+![Overview: apps and Foundry Agent Service reach Foundry models through APIM (Parts 1-3) or LiteLLM (Part 4), load-balanced across two Foundry regions; APIM also governs the Microsoft Learn MCP server.](docs/assets/overview.drawio.svg)
 
 The full, step-by-step workshop is in **[workshop.md](workshop.md)** (MOAW format).
 
