@@ -22,7 +22,8 @@ The per-scenario endpoints, connection IDs and gateway URLs are read from
 infra/scenario-outputs.json (written by deploy-client-foundry.ps1); env vars override.
 See scenario_config.py for the precedence rules.
 
-    KEEP_AGENT   set to 1 to persist agents for portal viewing (Build > Agents)
+    KEEP_AGENT   set to 0 to delete agents after the run; default keeps them for
+                 portal viewing (Build > Agents)
 """
 
 import os
@@ -31,7 +32,9 @@ from azure.identity import DefaultAzureCredential
 from azure.ai.projects import AIProjectClient
 from azure.ai.projects.models import PromptAgentDefinition, MCPTool, A2APreviewTool
 
-KEEP_AGENT = os.environ.get("KEEP_AGENT", "").strip().lower() in ("1", "true", "yes")
+# Agents persist by default so every scenario is visible in the portal (Build > Agents).
+# Set KEEP_AGENT=0 (or false/no) to clean them up after the run instead.
+KEEP_AGENT = os.environ.get("KEEP_AGENT", "1").strip().lower() not in ("0", "false", "no", "")
 
 # One canonical question per sub-scenario, reused across all three scenarios.
 QUESTION_MODEL = "In one sentence, what does an AI gateway do?"
@@ -118,4 +121,4 @@ def print_summary(scenario_title: str, results) -> None:
     for label, ok, detail in results:
         print(f"  {'PASS' if ok else 'FAIL'}  {label:<30} {detail}")
     if KEEP_AGENT:
-        print("\nKEEP_AGENT set -> agents left in the client project (Build > Agents).")
+        print("\nAgents left in the client project (Build > Agents). Set KEEP_AGENT=0 to clean up.")

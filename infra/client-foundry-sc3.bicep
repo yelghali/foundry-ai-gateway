@@ -15,8 +15,8 @@
 @description('Location for the Scenario 3 client Foundry account.')
 param location string = resourceGroup().location
 
-@description('Full name of the Scenario 3 client Foundry account (already suffixed by the orchestrator).')
-param accountName string
+@description('Name of the Scenario 3 client Foundry account.')
+param accountName string = 'client-foundry-sc3-${uniqueString(subscription().id, resourceGroup().id)}'
 
 @description('Project (agent runtime) name created on the account.')
 param projectName string = 'aigateway-sc3'
