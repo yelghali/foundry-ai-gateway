@@ -1,7 +1,10 @@
 openai>=1.40.0
 requests>=2.32.0
-# Agent-framework samples (agent_apim.py, agent_litellm.py)
+# OpenAI Agents SDK samples (agent_apim.py, agent_litellm.py)
 openai-agents>=0.1.0
+# Microsoft Agent Framework samples (agent_maf_apim.py, agent_maf_litellm.py)
+agent-framework-core>=1.8.0
+agent-framework-openai>=1.8.0
 # Foundry "bring your own gateway" agent samples (agent_foundry_apim.py, agent_foundry_litellm.py)
 azure-ai-projects>=2.0.0b1
 azure-identity>=1.17.0

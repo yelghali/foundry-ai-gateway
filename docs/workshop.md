@@ -82,8 +82,11 @@ foundry-ai-gateway/
     │   ├── test_burst.py            # APIM: concurrent burst that forces failover
     │   ├── sample_openai_apim.py    # APIM: OpenAI SDK (AzureOpenAI) client
     │   ├── agent_apim.py            # APIM: OpenAI Agents SDK agent + tool
+    │   ├── agent_maf_apim.py        # APIM: Microsoft Agent Framework agent + tool
     │   ├── test_litellm_tools.py    # LiteLLM: models + tools (function calling)
+    │   ├── sample_openai_litellm.py # LiteLLM: OpenAI SDK (OpenAI) client
     │   ├── agent_litellm.py         # LiteLLM: OpenAI Agents SDK agent + tool
+    │   ├── agent_maf_litellm.py     # LiteLLM: Microsoft Agent Framework agent + tool
     │   ├── agent_foundry_litellm.py # Part 5: Foundry agent via the LiteLLM (ModelGateway) connection
     │   └── agent_foundry_apim.py    # Part 5: Foundry agent via the APIM connection
     └── litellm/             # BYO gateway: config.yaml (Part 4), config.foundry.yaml (Part 5),
@@ -165,10 +168,14 @@ With 20 small, spaced-out requests you will likely see **all traffic stay on the
 >
 > # OpenAI Agents SDK: a client-side agent with a tool, on the load-balanced gateway
 > python ../src/test/agent_apim.py
+>
+> # Microsoft Agent Framework: the same agent + tool, driven by `agent-framework`
+> python ../src/test/agent_maf_apim.py
 > ```
 >
 > - **OpenAI SDK** — [sample_openai_apim.py](src/test/sample_openai_apim.py) points the `AzureOpenAI` client at `{gateway}/inference` with the `api-key` header.
 > - **OpenAI Agents SDK (client-side agent)** — [agent_apim.py](src/test/agent_apim.py) runs a real agent loop whose model backend is the APIM gateway; it called its `get_exchange_rate` tool and answered *"250 US dollars is approximately 230 euros and 197.50 pounds."* APIM load balances and authenticates with its managed identity — a drop-in OpenAI-compatible backend — even though APIM is **not** an agent *runtime*.
+> - **Microsoft Agent Framework** — [agent_maf_apim.py](src/test/agent_maf_apim.py) is the *same* scenario built with `agent-framework`'s `OpenAIChatCompletionClient` (Azure routing) → `as_agent(...)`. It shows the gateway works unchanged across agent frameworks; only the client library differs.
 
 </div>
 
@@ -347,7 +354,9 @@ $env:LITELLM_BASE_URL  = "http://localhost:4000"
 $env:LITELLM_MASTER_KEY = "sk-litellm-local-poc"
 
 python ../test/test_litellm_tools.py   # plain chat + function calling (models + tools)
+python ../test/sample_openai_litellm.py # OpenAI SDK (OpenAI client) -> LiteLLM
 python ../test/agent_litellm.py        # OpenAI Agents SDK agent (models + tools + agent loop)
+python ../test/agent_maf_litellm.py    # Microsoft Agent Framework agent (same scenario, MAF)
 ```
 
 <div class="tip" data-title="Real result from this lab">
@@ -369,7 +378,7 @@ python ../test/agent_litellm.py        # OpenAI Agents SDK agent (models + tools
 
 > - ✅ **Models** — LiteLLM proxies Foundry chat/completions and embeddings, and can **load balance and fail over** across regions just like the APIM backend pool.
 > - ✅ **Tools (function calling)** — LiteLLM passes `tools`/`tool_choice` through to the model and returns `tool_calls` (validated: `get_current_weather`). **Client-side** tool orchestration works. The model returns *which* tool to call; **your application still executes the tool** (LiteLLM does not host the tools).
-> - ✅ **Agents (as a model backend)** — validated by running the **OpenAI Agents SDK** ([agent_litellm.py](src/test/agent_litellm.py)) on top of the proxy: the agent completed a full tool-calling loop and composed the final answer. LiteLLM is **not** an agent *runtime*, but it is a fine **model backend** for any agent framework (OpenAI Agents SDK, Semantic Kernel, LangChain, …).
+> - ✅ **Agents (as a model backend)** — validated by running the **OpenAI Agents SDK** ([agent_litellm.py](src/test/agent_litellm.py)) and the **Microsoft Agent Framework** ([agent_maf_litellm.py](src/test/agent_maf_litellm.py)) on top of the proxy: the agent completed a full tool-calling loop and composed the final answer. LiteLLM is **not** an agent *runtime*, but it is a fine **model backend** for any agent framework (OpenAI Agents SDK, Microsoft Agent Framework, Semantic Kernel, LangChain, …).
 > - ⚠️ **Hosted agents / governance** — LiteLLM does **not** replace the **Foundry Agent Service** (server-side hosted agents, threads, hosted tools) nor the **native Foundry AI Gateway** governance plane (per-project token limits, custom agent registration, MCP/A2A tool governance from Part 3).
 > - 🔒 **Native *governance* integration** — Foundry's **Admin console AI Gateway only attaches Azure API Management (v2)**. A third-party gateway like LiteLLM cannot register *there* (the governance plane from Part 3).
 > - ✅ **Native *agent* integration** — but Foundry Agent Service has a **separate** "bring your own model" mechanism: a **Model Gateway connection** that *does* accept LiteLLM (or any non-Azure gateway). That is exactly **Part 5**, where Foundry agents call their model **through** the LiteLLM gateway.

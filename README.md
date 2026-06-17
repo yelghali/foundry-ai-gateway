@@ -33,8 +33,11 @@ foundry-ai-gateway/
     │   ├── test_burst.py            # APIM: concurrent burst that forces failover
     │   ├── sample_openai_apim.py    # APIM: OpenAI SDK (AzureOpenAI) client
     │   ├── agent_apim.py            # APIM: OpenAI Agents SDK agent + tool
+    │   ├── agent_maf_apim.py        # APIM: Microsoft Agent Framework agent + tool
     │   ├── test_litellm_tools.py    # LiteLLM: models + tools (function calling)
+    │   ├── sample_openai_litellm.py # LiteLLM: OpenAI SDK (OpenAI) client
     │   ├── agent_litellm.py         # LiteLLM: OpenAI Agents SDK agent + tool
+    │   ├── agent_maf_litellm.py     # LiteLLM: Microsoft Agent Framework agent + tool
     │   ├── agent_foundry_litellm.py # Part 5: Foundry agent via the LiteLLM (ModelGateway) connection
     │   ├── agent_foundry_apim.py    # Part 5: Foundry agent via the APIM connection
     │   └── requirements.txt
@@ -66,6 +69,7 @@ python ../src/test/test_load_balancing.py     # steady traffic (stays on priorit
 python ../src/test/test_burst.py              # concurrent burst -> forces failover
 python ../src/test/sample_openai_apim.py      # OpenAI SDK (AzureOpenAI) -> APIM
 python ../src/test/agent_apim.py              # OpenAI Agents SDK agent + tool -> APIM
+python ../src/test/agent_maf_apim.py          # Microsoft Agent Framework agent + tool -> APIM
 
 # 4. (Part 5) Bring your own gateway INTO Foundry. Two connection types:
 #    (a) APIM as an "ApiManagement" connection (reuses Parts 1-3 — no container)
@@ -101,7 +105,7 @@ The three gateway approaches differ most in **what they can govern**. The matrix
 | **Tools** — govern external MCP servers | ✅ Expose/govern MCP (e.g. Learn MCP) with policies | ✅ MCP/A2A tool governance via control plane | ❌ Not an MCP governance layer |
 | **Tools** — execution host | ❌ Client executes the tool | ❌ Client/agent executes the tool | ❌ Client executes the tool |
 | **Agents** — hosted agent runtime | ❌ Not an agent runtime (gateway only) | ✅ Integrates with **Foundry Agent Service** + custom agent registration | ❌ Not an agent runtime |
-| **Agents** — as a model backend for frameworks | ✅ OpenAI-compatible endpoint | ✅ Via Foundry projects | ✅ Point Semantic Kernel/LangChain at the OpenAI-compatible endpoint |
+| **Agents** — as a model backend for frameworks | ✅ OpenAI-compatible endpoint (OpenAI Agents SDK + Microsoft Agent Framework) | ✅ Via Foundry projects | ✅ OpenAI-compatible endpoint (OpenAI Agents SDK + Microsoft Agent Framework; Semantic Kernel/LangChain) |
 | **Agents** — backend for **Foundry Agent Service** (BYO gateway connection) | ✅ **`ApiManagement`** connection — validated (Part 5) | ✅ Native (Agent Service) | ✅ **`ModelGateway`** connection — **prompt agents only**, validated (Part 5) |
 | **Agent tools** through a BYO-gateway model | ✅ Foundry runs the tools | ✅ Foundry runs the tools | ✅ Code Interpreter, Functions, File Search, OpenAPI, Foundry IQ, SharePoint, Fabric, MCP, Browser Automation (run by Foundry) |
 | **Foundry control plane** — registered/discoverable | ⚠️ Only when attached as the native AI Gateway | ✅ First-class: per-project quotas, custom agent registration, tool governance | ⚠️ Model is admin-connected (Foundry governs the connection); LiteLLM itself is **not** a governance plane |
