@@ -79,8 +79,14 @@ $servicesEndpoint = $clientEndpoint -replace "\.cognitiveservices\.azure\.com", 
 Write-Host "`nClient project endpoint : $servicesEndpoint" -ForegroundColor Green
 Write-Host "Model deployments       : $($outputs.apimModelDeploymentName.value), $($outputs.litellmModelDeploymentName.value), $($outputs.customModelDeploymentName.value)"
 
-Write-Host "`nRun the 3 client scenarios (each does model -> tool -> A2A):" -ForegroundColor Cyan
-Write-Host "  Scenario 1 = custom (APIM)   Scenario 2 = AI Gateway native   Scenario 3 = AI Gateway LiteLLM"
+Write-Host "`nRun the 4 client scenarios (each does model -> tool -> A2A):" -ForegroundColor Cyan
+Write-Host "  Scenario 0 = local MAF agents (no Foundry, via APIM)   Scenario 1 = custom (APIM)"
+Write-Host "  Scenario 2 = AI Gateway native   Scenario 3 = AI Gateway LiteLLM"
+Write-Host "  # Scenario 0 needs only the APIM passthrough APIs (no Foundry connection):"
+Write-Host "  `$env:APIM_GATEWAY_URL = 'https://$apimServiceName.azure-api.net'"
+Write-Host "  `$env:APIM_API_KEY = '<APIM subscription key>'"
+Write-Host "  python ../src/test/scenario0_local_apim.py"
+Write-Host "  # Scenarios 1-3 run inside the client Foundry:"
 Write-Host "  `$env:CLIENT_PROJECT_ENDPOINT = '$servicesEndpoint'"
 Write-Host "  `$env:MODEL_NAME = '$($outputs.driverModelDeploymentName.value)'"
 Write-Host "  `$env:DRIVER_MODEL = '$($outputs.driverModelDeploymentName.value)'"

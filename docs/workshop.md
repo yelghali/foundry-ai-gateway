@@ -787,17 +787,16 @@ Both connections expose models the same way (`<connection>/<model>`) and support
 
 ---
 
-# Part 6 — Consuming the enterprise gateways: 3 client scenarios
+# Part 6 — Consuming the enterprise gateways: 4 client scenarios
 
-Parts 1–5 build the **enterprise** side: two Foundry regions (`foundry1` / `foundry2`) expose the models, APIM load-balances them (Part 1), and LiteLLM offers a bring-your-own alternative (Parts 4–5). Part 6 puts on the **consumer** hat: a separate **client** Foundry that owns **no enterprise models of its own** and reaches everything across the network through connections.
+Parts 1–5 build the **enterprise** side: two Foundry regions (`foundry1` / `foundry2`) expose the models, APIM load-balances them (Part 1), and LiteLLM offers a bring-your-own alternative (Parts 4–5). Part 6 puts on the **consumer** hat and reaches the **same three remote targets** — an **enterprise model**, the **MS Learn MCP tool**, and a **remote A2A specialist** — four different ways. Every scenario runs **three sub-scenarios in order — model → tool → A2A**:
 
-[infra/client-foundry.bicep](infra/client-foundry.bicep) stands up that **dedicated client account** (`foundry-client`, project `aigateway-client`). The same three remote targets — an **enterprise model**, the **MS Learn MCP tool**, and a **remote A2A specialist** — are consumed three different ways, one per scenario:
+- **Scenario 0 — Local agents (no Foundry):** an in-memory **Microsoft Agent Framework** agent in your own process, reaching everything straight through **APIM** — no Foundry account, no Foundry connection.
+- **Scenario 1 — Custom (APIM):** a Foundry agent using generic `CustomKeys` connections holding the raw APIM gateway URL + key.
+- **Scenario 2 — AI Gateway native:** a Foundry agent using the first-class `ApiManagement` connection.
+- **Scenario 3 — AI Gateway LiteLLM:** a Foundry agent using a self-hosted LiteLLM proxy registered as a `ModelGateway` connection.
 
-- **Scenario 1 — Custom (APIM):** generic `CustomKeys` connections holding the raw APIM gateway URL + key.
-- **Scenario 2 — AI Gateway native:** Foundry's first-class `ApiManagement` connection.
-- **Scenario 3 — AI Gateway LiteLLM:** a self-hosted LiteLLM proxy registered as a `ModelGateway` connection.
-
-Each scenario runs **three sub-scenarios in order — model → tool → A2A** — via [scenario1_custom_apim.py](src/test/scenario1_custom_apim.py), [scenario2_aigateway_native.py](src/test/scenario2_aigateway_native.py), and [scenario3_aigateway_litellm.py](src/test/scenario3_aigateway_litellm.py) (shared helpers in [scenario_lib.py](src/test/scenario_lib.py)). Each prints a PASS/FAIL summary.
+Scenario 0 runs entirely client-side via [scenario0_local_apim.py](src/test/scenario0_local_apim.py). Scenarios 1–3 are Foundry-hosted: [infra/client-foundry.bicep](infra/client-foundry.bicep) stands up a **dedicated client account** (`foundry-client`, project `aigateway-client`) that owns **no enterprise models of its own**, and they run via [scenario1_custom_apim.py](src/test/scenario1_custom_apim.py), [scenario2_aigateway_native.py](src/test/scenario2_aigateway_native.py), and [scenario3_aigateway_litellm.py](src/test/scenario3_aigateway_litellm.py) (shared helpers in [scenario_lib.py](src/test/scenario_lib.py)). Each script prints a PASS/FAIL summary.
 
 ## Global architecture
 
@@ -816,12 +815,18 @@ flowchart TB
     MCP["MS Learn MCP<br/>(tool)"]
     A2A["Remote A2A specialist<br/>(agent)"]
   end
+  subgraph LOCAL["LOCAL client process — no Foundry"]
+    SC0["Scenario 0<br/>Microsoft Agent Framework<br/>in-memory agent"]
+  end
   subgraph CLIENT["CLIENT Foundry (consumer) — no local enterprise models"]
     SC1["Scenario 1<br/>custom (APIM)<br/>CustomKeys"]
     SC2["Scenario 2<br/>AI Gateway native<br/>ApiManagement"]
     SC3["Scenario 3<br/>AI Gateway LiteLLM<br/>ModelGateway"]
     DRIVER["native gpt-4o-mini driver<br/>orchestrates every A2A leg"]
   end
+  SC0 -- "model + tool + A2A · all via APIM passthrough" --> APIM
+  SC0 -- "tool: MCP via APIM" --> MCP
+  SC0 -. "A2A via APIM passthrough" .-> A2A
   SC1 -. "model ⛔ CustomKeys can't back a model" .-> APIM
   SC1 -- "tool: MCP governed by APIM" --> MCP
   SC2 -- "model via APIM" --> APIM
@@ -831,7 +836,26 @@ flowchart TB
   DRIVER -- "A2A · direct host-root card" --> A2A
 ```
 
-> The **model** connection style is what changes between scenarios; **tools** ride the same gateway as their scenario (APIM for 1 & 2, LiteLLM for 3), and **A2A** is always orchestrated by the small **native driver** model (Foundry's managed A2A tool can't be driven by a *gateway* model — see findings).
+> **Scenario 0** is the *no-Foundry* baseline: a plain client app orchestrates model, tool and A2A itself, all through APIM passthrough APIs on one subscription key. **Scenarios 1–3** are Foundry-hosted; there the **model** connection style is what changes, **tools** ride the same gateway as their scenario (APIM for 1 & 2, LiteLLM for 3), and **A2A** is always orchestrated by the small **native driver** model (Foundry's managed A2A tool can't be driven by a *gateway* model — see findings).
+
+## Scenario 0 — Local agents (Microsoft Agent Framework), no Foundry
+
+The baseline: an ordinary **in-memory Microsoft Agent Framework (MAF) agent** running in your own process — **no Foundry account and no Foundry connection at all**. It reaches the same three targets straight through the **APIM** passthrough APIs (Parts 1, 2, 2b), governed by one subscription key. This is the **client-orchestrated** pattern: your app runs the tool-calling loop and APIM fronts every hop.
+
+| Sub-scenario | How it reaches APIM | Result |
+| --- | --- | --- |
+| **0a model** `sc0-local-apim-model` | MAF chat backend → APIM `/inference` (load balanced) | ✅ PASS |
+| **0b tool** `sc0-local-apim-tool` | MAF `MCPStreamableHTTPTool` → `{apim}/learn-mcp/mcp` (api-key header) | ✅ PASS |
+| **0c A2A** `sc0-local-apim-a2a` | local function tool sends A2A JSON-RPC → `{apim}/dummy-a2a` | ✅ PASS |
+
+```powershell
+# No Foundry needed — only the APIM passthrough APIs (main.bicep + a2a-agent.bicep).
+$env:APIM_GATEWAY_URL = "https://apim-xxxx.azure-api.net"
+$env:APIM_API_KEY     = "<subscription key>"
+python ../src/test/scenario0_local_apim.py
+```
+
+> Unlike Scenarios 1–3, Scenario 0's **A2A leg works through the gateway**: APIM passthrough proxies the A2A JSON-RPC fine for a *client-orchestrated* caller. The host-root card limitation only bites Foundry's *managed* A2A tool (Scenarios 1–3), which is why those reach the specialist directly.
 
 ## Scenario 1 — Custom (APIM)
 
@@ -869,8 +893,9 @@ A self-hosted LiteLLM proxy registered as a `ModelGateway` connection — same a
 cd infra
 # main.bicep + litellm-foundry.bicep + a2a-agent.bicep must already be deployed.
 ./deploy-client-foundry.ps1 -LitellmMasterKey "sk-litellm-foundry-poc"
-# the script prints the exact env vars to set; then run the three scenarios:
+# the script prints the exact env vars to set; then run the four scenarios:
 $env:KEEP_AGENT = "1"
+python ../src/test/scenario0_local_apim.py        # local MAF agent, no Foundry, via APIM
 python ../src/test/scenario1_custom_apim.py
 python ../src/test/scenario2_aigateway_native.py
 python ../src/test/scenario3_aigateway_litellm.py
@@ -905,6 +930,7 @@ Everything this lab creates is visible in the portal — here is where each piec
 | [agent_foundry_litellm.py](src/test/agent_foundry_litellm.py) (`litellm-gateway-agent`) | ✅ via LiteLLM | — | — | LiteLLM `ModelGateway` |
 | [agent_foundry_mcp_a2a_litellm.py](src/test/agent_foundry_mcp_a2a_litellm.py) (`litellm-mcp-a2a-agent`) | ✅ via LiteLLM | ✅ MS Learn via LiteLLM | ⛔ blocked (host-root card) | LiteLLM `ModelGateway` + Custom-keys |
 | [agent_foundry_apim.py](src/test/agent_foundry_apim.py) (`apim-gateway-agent`) | ✅ via APIM | — | — | APIM `ApiManagement` |
+| [scenario0_local_apim.py](src/test/scenario0_local_apim.py) (`sc0-local-apim-*`) | ✅ via APIM (MAF, no Foundry) | ✅ MS Learn via APIM | ✅ dummy agent via APIM | **Client Scenario 0 — local agents (no Foundry)** (Part 6) |
 | [scenario1_custom_apim.py](src/test/scenario1_custom_apim.py) (`sc1-custom-apim-*`) | ⛔ CustomKeys can't back a model | ✅ MS Learn via APIM | ✅ dummy agent (native driver) | **Client Scenario 1 — custom (APIM)** (Part 6) |
 | [scenario2_aigateway_native.py](src/test/scenario2_aigateway_native.py) (`sc2-aigateway-native-*`) | ✅ via APIM (`ApiManagement`) | ✅ MS Learn via APIM | ✅ dummy agent (native driver) | **Client Scenario 2 — AI Gateway native** (Part 6) |
 | [scenario3_aigateway_litellm.py](src/test/scenario3_aigateway_litellm.py) (`sc3-aigateway-litellm-*`) | ✅ via LiteLLM (`ModelGateway`) | ✅ MS Learn via LiteLLM | ✅ dummy agent (native driver) | **Client Scenario 3 — AI Gateway LiteLLM** (Part 6) |
@@ -926,6 +952,7 @@ Every pattern in this lab answers the same three questions: can my gateway let a
 | **LiteLLM — bring your own** *(Parts 4–5)* | ✅ OpenAI-compatible, Entra ID, multi-region | ✅ `mcp_servers` re-exposed at `/mcp` | ✅ **A2A Agent Gateway** at `/a2a/{agent}` *(needs the Postgres backend)* |
 | **Your gateway *into* Foundry** *(Part 5)* | ✅ Foundry Agent Service runs its **model** through APIM **or** LiteLLM | ✅ Foundry agent calls **MS Learn MCP via LiteLLM** *(auth via a project connection)* | ⚠️ A2A tool definable; `http://`-card + agent bugs **fixed**, but Foundry anchors A2A card discovery at the **host-root well-known URI** (confirmed with a `RemoteA2A` connection → `404`), which LiteLLM's path-scoped A2A gateway can't serve |
 | **Native Foundry agent — no gateway** *(Part 5)* | ✅ native deployment (`gpt-4o-mini`) | ✅ **MS Learn MCP** called directly | ✅ **dummy A2A agent** called directly (host-root card) — `native-mcp-a2a-agent` runs all three in one turn |
+| **Client — Scenario 0: local agents (no Foundry)** *(Part 6)* | ✅ enterprise model via **APIM** from an in-memory **Microsoft Agent Framework** agent (client-orchestrated, no Foundry connection) | ✅ **MS Learn MCP** via APIM (`MCPStreamableHTTPTool`, api-key header) | ✅ **dummy A2A agent** via the APIM `dummy-a2a` passthrough (client-orchestrated JSON-RPC) |
 | **Client — Scenario 1: custom (APIM)** *(Part 6)* | ⛔ a `CustomKeys` connection **can't back a model** (`400 — Category cannot be null`) | ✅ **MS Learn MCP** governed by **APIM** (Custom-keys connection) | ✅ **dummy A2A agent** via a **`RemoteA2A`** connection, orchestrated by a small **native driver** model |
 | **Client — Scenario 2: AI Gateway native** *(Part 6)* | ✅ enterprise model via the **`ApiManagement`** connection (no local enterprise models) | ✅ **MS Learn MCP** governed by **APIM**, driven by the same APIM-gateway model | ✅ **dummy A2A agent** via a **`RemoteA2A`** connection (native driver) |
 | **Client — Scenario 3: AI Gateway LiteLLM** *(Part 6)* | ✅ enterprise model via the **`ModelGateway`** connection (no local enterprise models) | ✅ **MS Learn MCP** governed by **LiteLLM**, driven by the same LiteLLM-gateway model | ✅ **dummy A2A agent** via a **`RemoteA2A`** connection (native driver) |
