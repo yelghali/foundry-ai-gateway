@@ -79,8 +79,11 @@ $servicesEndpoint = $clientEndpoint -replace "\.cognitiveservices\.azure\.com", 
 Write-Host "`nClient project endpoint : $servicesEndpoint" -ForegroundColor Green
 Write-Host "Model deployments       : $($outputs.apimModelDeploymentName.value), $($outputs.litellmModelDeploymentName.value), $($outputs.customModelDeploymentName.value)"
 
-Write-Host "`nRun the client agent (model 3 ways + MCP behind APIM/LiteLLM + A2A):" -ForegroundColor Cyan
+Write-Host "`nRun the 3 client scenarios (each does model -> tool -> A2A):" -ForegroundColor Cyan
+Write-Host "  Scenario 1 = custom (APIM)   Scenario 2 = AI Gateway native   Scenario 3 = AI Gateway LiteLLM"
 Write-Host "  `$env:CLIENT_PROJECT_ENDPOINT = '$servicesEndpoint'"
+Write-Host "  `$env:MODEL_NAME = '$($outputs.driverModelDeploymentName.value)'"
+Write-Host "  `$env:DRIVER_MODEL = '$($outputs.driverModelDeploymentName.value)'"
 Write-Host "  `$env:MCP_APIM_URL = 'https://$apimServiceName.azure-api.net/learn-mcp/mcp'"
 Write-Host "  `$env:MCP_APIM_CONN_ID = '$($outputs.mcpApimConnectionId.value)'"
 Write-Host "  `$env:MCP_LITELLM_URL = 'https://$litellmFqdn/mcp/'"
@@ -88,4 +91,6 @@ Write-Host "  `$env:MCP_LITELLM_CONN_ID = '$($outputs.mcpLitellmConnectionId.val
 Write-Host "  `$env:A2A_DIRECT_URL = '$DummyA2aUrl'"
 Write-Host "  `$env:A2A_DIRECT_CONN_ID = '$($outputs.a2aDirectConnectionId.value)'"
 Write-Host "  `$env:KEEP_AGENT = '1'"
-Write-Host "  python ../src/test/agent_foundry_client.py"
+Write-Host "  python ../src/test/scenario1_custom_apim.py"
+Write-Host "  python ../src/test/scenario2_aigateway_native.py"
+Write-Host "  python ../src/test/scenario3_aigateway_litellm.py"

@@ -82,7 +82,7 @@ param modelName string = 'gpt-4o-mini'
 param modelVersion string = '2024-07-18'
 
 @description('Capacity (K TPM) for the small native driver deployment used to orchestrate the A2A tool.')
-param driverModelCapacity int = 10
+param driverModelCapacity int = 50
 
 // ------------------
 //    VARIABLES
