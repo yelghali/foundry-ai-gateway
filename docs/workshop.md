@@ -501,15 +501,28 @@ python ../src/test/agent_foundry_apim.py
 
 </div>
 
-<div class="tip" data-title="APIM vs Model Gateway connection">
+### Which connection should I use?
 
-> Both connections expose models the same way (`<connection>/<model>`) and support the same Foundry-side agent tools. Choose **`ApiManagement`** when APIM is your gateway — no container, intelligent `/deployments` defaults, and only **Standard v2 / Premium** APIM tiers are supported. Choose **`ModelGateway`** for LiteLLM or any other gateway, with static or dynamic model discovery.
+Both connections expose models the same way (`<connection>/<model>`) and support the same Foundry-side agent tools — they differ mainly in the gateway behind them:
 
-</div>
+| | `ApiManagement` | `ModelGateway` |
+| --- | --- | --- |
+| **Use when** | APIM is your gateway (Parts 1–3) | LiteLLM or any other gateway |
+| **Container to host?** | None | Yes (e.g. Container Apps) |
+| **Model discovery** | Intelligent `/deployments` defaults | Static or dynamic |
+| **Supported tiers** | APIM **Standard v2 / Premium** | Any OpenAI-compatible gateway |
+| **Model reference** | `<connection>/<model>` | `<connection>/<model>` |
+| **Foundry-side tools** | ✅ Same | ✅ Same |
 
 <div class="warning" data-title="Preview feature & limits">
 
-> The *bring your own model* / Model Gateway connection is in **preview**. Current limits: **prompt agents only** (Agent SDK); supported agent tools are **Code Interpreter, Functions, File Search, OpenAPI, Foundry IQ, SharePoint Grounding, Fabric Data Agent, MCP, and Browser Automation**; public networking works for both APIM and self-hosted gateways (full network isolation needs the gateway reachable inside the Agent Service VNet). BYO models are **Non-Microsoft Products** — content filters and other responsible-AI mitigations are **your** responsibility. See the [BYO model docs](https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway).
+> The *bring your own model* / Model Gateway connection is in **preview**:
+>
+> - **Agents** — prompt agents only (Agent SDK).
+> - **Supported tools** — Code Interpreter, Functions, File Search, OpenAPI, Foundry IQ, SharePoint Grounding, Fabric Data Agent, MCP, Browser Automation.
+> - **Networking** — public networking works for both APIM and self-hosted gateways; full network isolation needs the gateway reachable inside the Agent Service VNet.
+> - **Responsible AI** — BYO models are **Non-Microsoft Products**; content filters and other mitigations are **your** responsibility.
+> - **Docs** — [Bring your own model to Foundry Agent Service](https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway).
 
 </div>
 
