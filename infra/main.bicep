@@ -66,6 +66,9 @@ param apimSubscriptionsConfig array = [
 @description('Path to the inference API in the APIM service.')
 param inferenceAPIPath string = 'inference'
 
+@description('Backend base URL for the MS Learn MCP passthrough API. The "/mcp" operation path is appended to it.')
+param mslearnMcpBackendUrl string = 'https://learn.microsoft.com/api'
+
 @description('Name of the Foundry project created on each account.')
 param foundryProjectName string = 'aigateway'
 
@@ -351,6 +354,90 @@ resource embeddingsOperation 'Microsoft.ApiManagement/service/apis/operations@20
 }
 
 // ------------------
+//    MS LEARN MCP PASSTHROUGH API
+// ------------------
+// Exposes the public MS Learn remote MCP server THROUGH APIM, so the gateway governs
+// *tool* (MCP) traffic the same way it governs *model* traffic. Agents point their MCP
+// client at {gateway}/learn-mcp/mcp with the api-key header; APIM proxies the streamable
+// HTTP/SSE to https://learn.microsoft.com/api/mcp.
+
+resource mcpBackend 'Microsoft.ApiManagement/service/backends@2024-06-01-preview' = {
+  name: 'mslearn-mcp'
+  parent: apimService
+  properties: {
+    description: 'MS Learn remote MCP server'
+    // Operation urlTemplate '/mcp' is appended -> https://learn.microsoft.com/api/mcp
+    url: mslearnMcpBackendUrl
+    protocol: 'http'
+  }
+}
+
+resource mcpApi 'Microsoft.ApiManagement/service/apis@2024-06-01-preview' = {
+  name: 'mslearn-mcp'
+  parent: apimService
+  properties: {
+    apiType: 'http'
+    description: 'MS Learn remote MCP server, proxied through APIM (governs tool/MCP traffic).'
+    displayName: 'MS Learn MCP'
+    path: 'learn-mcp'
+    protocols: [
+      'https'
+    ]
+    subscriptionKeyParameterNames: {
+      header: 'api-key'
+      query: 'api-key'
+    }
+    subscriptionRequired: true
+    type: 'http'
+  }
+}
+
+resource mcpApiPolicy 'Microsoft.ApiManagement/service/apis/policies@2024-06-01-preview' = {
+  name: 'policy'
+  parent: mcpApi
+  properties: {
+    format: 'rawxml'
+    // buffer-response="false" keeps the MCP streamable-HTTP / SSE responses flowing.
+    value: '<policies><inbound><base /><set-backend-service backend-id="mslearn-mcp" /></inbound><backend><forward-request buffer-response="false" /></backend><outbound><base /></outbound><on-error><base /></on-error></policies>'
+  }
+  dependsOn: [
+    mcpBackend
+  ]
+}
+
+// MCP streamable HTTP uses POST (JSON-RPC requests), GET (open SSE stream) and DELETE
+// (terminate session) against the single /mcp endpoint.
+resource mcpPostOperation 'Microsoft.ApiManagement/service/apis/operations@2024-06-01-preview' = {
+  name: 'mcp-post'
+  parent: mcpApi
+  properties: {
+    displayName: 'MCP request (JSON-RPC)'
+    method: 'POST'
+    urlTemplate: '/mcp'
+  }
+}
+
+resource mcpGetOperation 'Microsoft.ApiManagement/service/apis/operations@2024-06-01-preview' = {
+  name: 'mcp-get'
+  parent: mcpApi
+  properties: {
+    displayName: 'MCP server stream (SSE)'
+    method: 'GET'
+    urlTemplate: '/mcp'
+  }
+}
+
+resource mcpDeleteOperation 'Microsoft.ApiManagement/service/apis/operations@2024-06-01-preview' = {
+  name: 'mcp-delete'
+  parent: mcpApi
+  properties: {
+    displayName: 'MCP session terminate'
+    method: 'DELETE'
+    urlTemplate: '/mcp'
+  }
+}
+
+// ------------------
 //    OUTPUTS
 // ------------------
 
@@ -358,6 +445,9 @@ output apimServiceId string = apimService.id
 output apimServiceName string = apimService.name
 output apimResourceGatewayURL string = apimService.properties.gatewayUrl
 output inferenceAPIPath string = inferenceAPIPath
+
+@description('Full URL of the MS Learn MCP server proxied through APIM. Use as the MCP client URL with the api-key header.')
+output mslearnMcpUrl string = '${apimService.properties.gatewayUrl}/learn-mcp/mcp'
 
 output foundryAccounts array = [
   for (config, i) in aiServicesConfig: {

@@ -48,3 +48,14 @@ litellm_settings:
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY   # the key Foundry's connection presents
+
+# ---- MCP gateway ----
+# LiteLLM also acts as an MCP gateway: it registers remote MCP servers here and
+# re-exposes them at /mcp. Agents reach MS Learn THROUGH LiteLLM, so the same proxy
+# + master key govern tool (MCP) traffic as well as model traffic.
+# Select this server from a client with header:  x-mcp-servers: mslearn
+mcp_servers:
+  mslearn:
+    url: "https://learn.microsoft.com/api/mcp"   # public MS Learn remote MCP server
+    transport: "http"                            # streamable HTTP
+    description: "Microsoft Learn documentation MCP server"

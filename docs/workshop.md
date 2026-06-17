@@ -83,10 +83,12 @@ foundry-ai-gateway/
     │   ├── sample_openai_apim.py    # APIM: OpenAI SDK (AzureOpenAI) client
     │   ├── agent_apim.py            # APIM: OpenAI Agents SDK agent + tool
     │   ├── agent_maf_apim.py        # APIM: Microsoft Agent Framework agent + tool
+    │   ├── agent_mcp_apim.py        # APIM: agent + local tool + remote MS Learn MCP (proxied by APIM)
     │   ├── test_litellm_tools.py    # LiteLLM: models + tools (function calling)
     │   ├── sample_openai_litellm.py # LiteLLM: OpenAI SDK (OpenAI) client
     │   ├── agent_litellm.py         # LiteLLM: OpenAI Agents SDK agent + tool
     │   ├── agent_maf_litellm.py     # LiteLLM: Microsoft Agent Framework agent + tool
+    │   ├── agent_mcp_litellm.py     # LiteLLM: agent + local tool + remote MS Learn MCP (proxied by LiteLLM)
     │   ├── agent_foundry_litellm.py # Part 5: Foundry agent via the LiteLLM (ModelGateway) connection
     │   └── agent_foundry_apim.py    # Part 5: Foundry agent via the APIM connection
     └── litellm/             # BYO gateway: config.yaml (Part 4), config.foundry.yaml (Part 5),
@@ -267,6 +269,28 @@ Add it to VS Code (Command Palette → **MCP: Add Server** → **HTTP**) using t
 
 </div>
 
+## Deploy it as code (and call it from an agent)
+
+The portal steps above are reproduced as **infrastructure-as-code** in [infra/main.bicep](infra/main.bicep): a `mslearn-mcp` **backend** (`https://learn.microsoft.com/api`), a `learn-mcp` **API** with `POST`/`GET`/`DELETE` `/mcp` operations, an API-key subscription, and a passthrough policy (`set-backend-service` + `forward-request buffer-response="false"` so the streamable-HTTP transport is not buffered). It is created automatically by `./deploy.ps1`, and the gateway exposes:
+
+```
+https://<apim-name>.azure-api.net/learn-mcp/mcp
+```
+
+[agent_mcp_apim.py](src/test/agent_mcp_apim.py) shows an agent that combines a **local** Python tool (`get_exchange_rate`) with the **remote** MS Learn MCP toolset — both reached **through APIM** with the *same* subscription key:
+
+```powershell
+> $env:APIM_GATEWAY_URL = "<apimResourceGatewayURL>"
+> $env:APIM_API_KEY      = "<subscription key>"
+> python ../src/test/agent_mcp_apim.py
+```
+
+<div class="tip" data-title="Validated">
+
+> The agent asked MS Learn *what Azure API Management is* **and** converted *100 USD → EUR*, answering: *"Azure API Management is a hybrid, multicloud management platform for APIs … (Source: learn.microsoft.com) … 100 USD is approximately 92 EUR."* The model (inference) call **and** the MCP tool call both flowed through APIM on one key — one gateway governs both.
+
+</div>
+
 ---
 
 # Part 3 — Foundry native AI Gateway
@@ -372,6 +396,34 @@ python ../test/agent_maf_litellm.py    # Microsoft Agent Framework agent (same s
 
 </div>
 
+## LiteLLM as an MCP gateway
+
+LiteLLM is not only a model gateway — it can also act as an **MCP gateway**. Register one or more remote MCP servers under a top-level `mcp_servers:` block (already added to [src/litellm/config.yaml](src/litellm/config.yaml) and [config.foundry.yaml](src/litellm/config.foundry.yaml)):
+
+```yaml
+mcp_servers:
+  mslearn:
+    url: "https://learn.microsoft.com/api/mcp"
+    transport: "http"
+    description: "Microsoft Learn documentation MCP server"
+```
+
+LiteLLM aggregates the registered servers and re-exposes them on its own endpoint at **`/mcp/`**. A client authenticates with the LiteLLM master key and selects a server with the `x-mcp-servers` header — so the **same proxy + key** front both model traffic *and* MCP-tool traffic, mirroring the APIM passthrough from Part 2.
+
+[agent_mcp_litellm.py](src/test/agent_mcp_litellm.py) is the LiteLLM twin of `agent_mcp_apim.py`: one agent, a **local** `get_exchange_rate` tool plus the **remote** MS Learn MCP toolset, both through LiteLLM:
+
+```powershell
+python ../test/agent_mcp_litellm.py    # agent + local tool + remote MS Learn MCP, both THROUGH LiteLLM
+```
+
+<div class="tip" data-title="Validated (and a trailing-slash gotcha)">
+
+> The agent answered the *what is Azure API Management* question from MS Learn (with a `learn.microsoft.com` citation) **and** converted *100 USD ≈ 92 EUR* with the local tool — both governed by LiteLLM.
+>
+> Note the MCP URL needs a **trailing slash** (`{base_url}/mcp/`): LiteLLM `307`-redirects `/mcp` → `/mcp/`, and the streamable-HTTP MCP client refuses to follow that redirect (it can downgrade HTTPS→HTTP behind the Container Apps proxy). The sample defaults to the trailing-slash URL.
+
+</div>
+
 ## Findings: models, tools, and agents
 
 <div class="important" data-title="POC conclusion">
@@ -379,6 +431,7 @@ python ../test/agent_maf_litellm.py    # Microsoft Agent Framework agent (same s
 > - ✅ **Models** — LiteLLM proxies Foundry chat/completions and embeddings, and can **load balance and fail over** across regions just like the APIM backend pool.
 > - ✅ **Tools (function calling)** — LiteLLM passes `tools`/`tool_choice` through to the model and returns `tool_calls` (validated: `get_current_weather`). **Client-side** tool orchestration works. The model returns *which* tool to call; **your application still executes the tool** (LiteLLM does not host the tools).
 > - ✅ **Agents (as a model backend)** — validated by running the **OpenAI Agents SDK** ([agent_litellm.py](src/test/agent_litellm.py)) and the **Microsoft Agent Framework** ([agent_maf_litellm.py](src/test/agent_maf_litellm.py)) on top of the proxy: the agent completed a full tool-calling loop and composed the final answer. LiteLLM is **not** an agent *runtime*, but it is a fine **model backend** for any agent framework (OpenAI Agents SDK, Microsoft Agent Framework, Semantic Kernel, LangChain, …).
+> - ✅ **MCP gateway** — LiteLLM can also aggregate **remote MCP servers** (`mcp_servers:`) and re-expose them at `/mcp/`, so the same proxy + key govern model *and* MCP-tool traffic ([agent_mcp_litellm.py](src/test/agent_mcp_litellm.py)). This is a **proxy** with key auth — not the full policy governance (rate limits, tracing) of the APIM MCP passthrough in Part 2.
 > - ⚠️ **Hosted agents / governance** — LiteLLM does **not** replace the **Foundry Agent Service** (server-side hosted agents, threads, hosted tools) nor the **native Foundry AI Gateway** governance plane (per-project token limits, custom agent registration, MCP/A2A tool governance from Part 3).
 > - 🔒 **Native *governance* integration** — Foundry's **Admin console AI Gateway only attaches Azure API Management (v2)**. A third-party gateway like LiteLLM cannot register *there* (the governance plane from Part 3).
 > - ✅ **Native *agent* integration** — but Foundry Agent Service has a **separate** "bring your own model" mechanism: a **Model Gateway connection** that *does* accept LiteLLM (or any non-Azure gateway). That is exactly **Part 5**, where Foundry agents call their model **through** the LiteLLM gateway.
@@ -393,6 +446,7 @@ python ../test/agent_maf_litellm.py    # Microsoft Agent Framework agent (same s
 | Retry / failover on 429 | ✅ Policy + circuit breaker | ✅ num_retries / cooldown |
 | Managed-identity auth to Foundry (no keys) | ✅ | ⚠️ Entra ID token (no keys, but client-managed) |
 | Function-calling (tools) pass-through | ✅ | ✅ |
+| Govern / proxy remote MCP servers | ✅ Passthrough API + policies | ⚠️ MCP gateway (`mcp_servers`, key auth) |
 | Agent framework as a model backend | ✅ OpenAI-compatible | ✅ OpenAI-compatible |
 | Govern external MCP tool servers | ✅ | ❌ |
 | Per-project token limits / quotas | ✅ (native AI Gateway) | ⚠️ virtual-key budgets only |
