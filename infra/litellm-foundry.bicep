@@ -230,6 +230,15 @@ resource litellmApp 'Microsoft.App/containerApps@2024-03-01' = {
               name: 'STORE_MODEL_IN_DB'
               value: 'True'
             }
+            {
+              // Behind Container Apps the TLS-terminating ingress is the proxy, and its
+              // source IP is not 127.0.0.1, so uvicorn (proxy_headers on by default)
+              // otherwise ignores X-Forwarded-Proto and builds http:// self URLs. Trust
+              // the forwarded headers so request.base_url is https — this makes the A2A
+              // Agent Gateway advertise https agent-card URLs (and OAuth/MCP callbacks).
+              name: 'FORWARDED_ALLOW_IPS'
+              value: '*'
+            }
           ]
           volumeMounts: [
             {

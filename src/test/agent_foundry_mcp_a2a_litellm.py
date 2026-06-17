@@ -7,10 +7,35 @@ This is the most complete "bring your own gateway" demo: a single Foundry
 
     * model   ->  litellm-gateway/gpt-4o-mini   (Foundry Model Gateway connection)
     * MCP tool ->  {LiteLLM}/mcp/  (x-mcp-servers: mslearn -> remote MS Learn MCP)
-    * A2A tool ->  {LiteLLM}/a2a/dummy-specialist  (remote A2A specialist agent)
+    * A2A tool ->  remote A2A specialist agent (see A2A finding below)
 
-all flow through the *same* LiteLLM gateway on Azure Container Apps. One control
-point governs model + tool + agent traffic.
+The model + MCP legs flow through the *same* LiteLLM gateway on Azure Container
+Apps. One control point governs model + tool traffic.
+
+A2A finding (Foundry managed A2A tool vs. LiteLLM)
+-------------------------------------------------
+The MCP leg is validated end to end through LiteLLM. The A2A leg is *not*
+governable through LiteLLM with Foundry's **managed** A2APreviewTool, for a
+structural reason discovered empirically:
+
+  * Foundry resolves the agent card at the **host root of the project
+    connection's target** (``{scheme}://{host}/.well-known/agent-card.json``) and
+    sends ``message/send`` **directly to that same server** — it ignores the
+    tool ``base_url`` path, the ``agent_card_path``, and the card's advertised
+    ``url``. So LiteLLM's A2A gateway (path-scoped at ``/a2a/{agent}/...`` with
+    no host-root card or host-root message route) cannot sit in front of the
+    agent for the managed tool. Pointing the connection straight at the agent
+    makes Foundry discover + call it, but that bypasses LiteLLM.
+  * Two prerequisites that *were* fixed along the way: LiteLLM now advertises
+    **https** card URLs (``FORWARDED_ALLOW_IPS=*`` on the container), and the
+    demo A2A agent now reads **chunked** request bodies (Foundry's .NET A2A
+    client sends them) and replies with an A2A **Message**.
+  * Even pointing Foundry directly at the agent, the managed A2A tool currently
+    returns an opaque Foundry-side ``500 server_error`` after the agent answers
+    — a preview-stage limitation.
+
+A2A *through LiteLLM* is validated for **client-orchestrated** agents instead
+(see agent_a2a_litellm.py), where the client controls the endpoint URL.
 
 How Foundry executes the tools
 ------------------------------
@@ -26,7 +51,8 @@ LiteLLM through a Foundry **Custom keys** project connection that stores
 ``Authorization: Bearer <LiteLLM master key>``:
 
 * MCPTool  -> server_url = {LiteLLM}/mcp/   + project_connection_id (litellm-mcp)
-* A2APreviewTool -> base_url = {LiteLLM}/a2a/dummy-specialist + project_connection_id (litellm-a2a)
+* A2APreviewTool -> base_url + project_connection_id (litellm-a2a). NOTE: Foundry
+  discovers + routes A2A via the *connection target* host root, not this base_url.
 
 Create each connection once (portal: Management center > Connected resources >
 Custom keys, key ``Authorization`` = ``Bearer <key>``; or via the management REST
@@ -49,6 +75,9 @@ Environment variables:
                                     LiteLLM Authorization header for the MCP endpoint
     FOUNDRY_A2A_CONNECTION_ID       (optional) project connection id holding the
                                     LiteLLM Authorization header for A2A; enables the A2A hop
+    FOUNDRY_A2A_BASE_URL            (optional) host whose /.well-known/agent-card.json
+                                    Foundry discovers for the A2A tool; defaults to
+                                    LITELLM_BASE_URL. See the A2A finding above.
 """
 
 import os
@@ -66,6 +95,13 @@ MODEL_DEPLOYMENT = os.environ["FOUNDRY_MODEL_DEPLOYMENT_NAME"]  # "<connection>/
 LITELLM_BASE_URL = os.environ["LITELLM_BASE_URL"].rstrip("/")
 MCP_CONNECTION_ID = os.environ["FOUNDRY_MCP_CONNECTION_ID"]
 A2A_CONNECTION_ID = os.environ.get("FOUNDRY_A2A_CONNECTION_ID")
+# Host whose /.well-known/agent-card.json Foundry discovers for the A2A tool. Foundry
+# resolves the agent card at the HOST ROOT (per the A2A spec / RFC 8615), ignoring any
+# sub-path or agent_card_path. LiteLLM only serves the card UNDER a path
+# (/a2a/{agent}/.well-known/agent-card.json), so we discover the card at the A2A agent's
+# OWN host root and let that card advertise the LiteLLM endpoint as its url — so discovery
+# is direct but every A2A *message* still flows through the LiteLLM gateway.
+A2A_DISCOVERY_BASE_URL = os.environ.get("FOUNDRY_A2A_BASE_URL", LITELLM_BASE_URL)
 
 
 def build_tools() -> list:
@@ -88,15 +124,20 @@ def build_tools() -> list:
 
     # 2) Remote A2A specialist, governed by LiteLLM. Auth also comes from a
     #    Custom-keys project connection holding the LiteLLM bearer token.
-    #    Foundry resolves agent_card_path against the host root, so base_url is the
-    #    gateway host and the full LiteLLM A2A card path is given explicitly.
+    #    Foundry resolves the agent card at the HOST ROOT of base_url
+    #    ({scheme}://{host}/.well-known/agent-card.json), ignoring any sub-path and the
+    #    agent_card_path argument. LiteLLM only serves the card UNDER a path
+    #    (/a2a/{agent}/.well-known/...), so we point base_url at the A2A agent's OWN host
+    #    (which serves a host-root card). That card advertises the LiteLLM endpoint as its
+    #    url, so discovery is direct to the agent but every A2A *message* the agent runtime
+    #    sends flows through the LiteLLM gateway. FORWARDED_ALLOW_IPS=* on the LiteLLM
+    #    container makes uvicorn honour X-Forwarded-Proto so the advertised url is https.
     if A2A_CONNECTION_ID:
         tools.append(
             A2APreviewTool(
                 name="dummy_specialist",
                 description="A remote A2A specialist agent reached through the LiteLLM gateway.",
-                base_url=LITELLM_BASE_URL,
-                agent_card_path="/a2a/dummy-specialist/.well-known/agent-card.json",
+                base_url=A2A_DISCOVERY_BASE_URL,
                 project_connection_id=A2A_CONNECTION_ID,
             )
         )

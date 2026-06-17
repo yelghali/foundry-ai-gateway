@@ -75,22 +75,19 @@ def _specialist_answer(question: str) -> str:
 
 
 def _make_task_result(request_id, question: str) -> dict:
+    # A2A "message/send" may return either a Message or a Task. We reply with a
+    # synchronous Message (the simplest result kind), which every A2A client we target
+    # — including the Foundry Agent Service A2A tool — accepts. (Returning a completed
+    # Task object instead caused the Foundry runtime to fail processing the reply.)
     answer = _specialist_answer(question)
     return {
         "jsonrpc": "2.0",
         "id": request_id,
         "result": {
-            "kind": "task",
-            "id": f"task-{uuid.uuid4().hex}",
-            "contextId": f"ctx-{uuid.uuid4().hex}",
-            "status": {"state": "completed", "timestamp": _now()},
-            "artifacts": [
-                {
-                    "artifactId": f"artifact-{uuid.uuid4().hex}",
-                    "name": "response",
-                    "parts": [{"kind": "text", "text": answer}],
-                }
-            ],
+            "kind": "message",
+            "role": "agent",
+            "messageId": f"msg-{uuid.uuid4().hex}",
+            "parts": [{"kind": "text", "text": answer}],
         },
     }
 
@@ -101,6 +98,36 @@ def _error(request_id, code: int, message: str) -> dict:
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "DummyA2A/1.0"
+    # Speak HTTP/1.1 so clients that use keep-alive / chunked uploads (e.g. .NET
+    # HttpClient, which the Foundry Agent Service A2A tool uses) are framed correctly.
+    protocol_version = "HTTP/1.1"
+
+    def _read_body(self) -> bytes:
+        """Read the request body, honouring chunked transfer-encoding.
+
+        Some A2A clients (notably .NET HttpClient) send the JSON-RPC body with
+        ``Transfer-Encoding: chunked`` and no ``Content-Length``. The stdlib handler
+        does not de-chunk for us, so a naive ``Content-Length`` read returns an empty
+        body and the request looks like it has no ``method``.
+        """
+        if "chunked" in (self.headers.get("Transfer-Encoding") or "").lower():
+            chunks = []
+            while True:
+                size_line = self.rfile.readline()
+                if not size_line:
+                    break
+                try:
+                    size = int(size_line.strip().split(b";", 1)[0], 16)
+                except ValueError:
+                    break
+                if size == 0:
+                    self.rfile.readline()  # consume the trailing CRLF
+                    break
+                chunks.append(self.rfile.read(size))
+                self.rfile.readline()  # consume the CRLF after each chunk
+            return b"".join(chunks)
+        length = int(self.headers.get("Content-Length", "0") or "0")
+        return self.rfile.read(length) if length else b""
 
     def _send_json(self, status: int, payload: dict) -> None:
         body = json.dumps(payload).encode("utf-8")
@@ -120,12 +147,14 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(404, {"error": "not found"})
 
     def do_POST(self):  # noqa: N802 (http.server API)
-        length = int(self.headers.get("Content-Length", "0") or "0")
-        raw = self.rfile.read(length) if length else b""
         try:
+            raw = self._read_body()
             req = json.loads(raw or b"{}")
         except json.JSONDecodeError:
             self._send_json(400, _error(None, -32700, "Parse error"))
+            return
+        if not isinstance(req, dict):
+            self._send_json(200, _error(None, -32600, "Invalid Request"))
             return
 
         request_id = req.get("id")
