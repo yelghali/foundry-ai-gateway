@@ -382,6 +382,18 @@ Once a project is gateway-enabled, **all of its requests flow through APIM** —
 
 ![In a gateway-enabled project, a client app and a Foundry agent both send requests through the native AI Gateway (APIM v2, per-project token limits); APIM forwards them to the project's Foundry model deployments and tools.](assets/part3-native.drawio.svg)
 
+<div class="info" data-title="Beyond model token limits: tools and agents (preview)">
+
+> The native AI Gateway governs **all three** kinds of traffic, not just models:
+>
+> - **Models** — per-project **token limits and quotas** (the focus of this part).
+> - **Tools (MCP)** — when you add a remote **MCP tool** in the Foundry portal of a gateway-enabled resource, Foundry **automatically re-routes it through APIM**. Confirm it by checking that the tool's endpoint shows the gateway URL (`https://<apim>.azure-api.net/mcp/...`) instead of the direct MCP server. You then apply APIM policies (rate limits, IP filters, headers) to that tool traffic. See [Govern MCP tools by using an AI gateway (preview)](https://learn.microsoft.com/azure/ai-foundry/agents/how-to/tools/governance).
+> - **Agents (A2A)** — register agents running **anywhere** into Foundry's control plane for centralized inventory, telemetry, and policy. See [Register custom agents](https://learn.microsoft.com/azure/foundry/control-plane/register-custom-agent).
+>
+> So the *same* native gateway that caps tokens can also be the governed entry point for a Foundry agent's **MCP tool** and **A2A** calls. These tool/agent features are **preview** and **portal/control-plane-driven** (no Bicep), so this lab documents them rather than deploying them — Parts 2/2b already prove the equivalent **MCP + A2A through APIM** with passthrough APIs you build yourself.
+
+</div>
+
 ## Enable it
 
 1. Sign in to [Microsoft Foundry](https://ai.azure.com/) (ensure **New Foundry** is on).
@@ -569,7 +581,7 @@ This is the key question for a BYO gateway: once LiteLLM is connected, **how muc
 | Foundry capability | Through the gateway? | What it means |
 | --- | --- | --- |
 | **Models** | ✅ Yes | Your LiteLLM models appear as **admin-connected deployments** (`<connection>/<model>`) implementing the OpenAI chat-completions API. Supports **static** discovery (models listed in connection metadata, as in this lab) and **dynamic** discovery (models listed by the gateway at runtime). |
-| **Tools** | ✅ Yes (Foundry-side) | The agent's tools run in **Foundry's** agent runtime, not in LiteLLM — supported tools include **Code Interpreter, Functions, File Search, OpenAPI, Foundry IQ, SharePoint Grounding, Fabric Data Agent, MCP, and Browser Automation**. Foundry calls *your* model for the reasoning turns and executes the tools itself. |
+| **Tools** | ✅ Yes (Foundry-side) | The agent's tools run in **Foundry's** agent runtime, not in LiteLLM — supported tools include **Code Interpreter, Functions, File Search, OpenAPI, Foundry IQ, SharePoint Grounding, Fabric Data Agent, MCP, and Browser Automation**. Foundry calls *your* model for the reasoning turns and executes the tools itself. The tool **runtime** is Foundry-side, but a tool's **target** can be your gateway — e.g. an **MCP tool pointed at LiteLLM's `/mcp/`** (validated below), so one gateway governs the model *and* the tool. |
 | **Agents** | ⚠️ Prompt agents only | Only **prompt agents in the Agent SDK** can use a BYO-gateway model today. Other/hosted agent types are not yet supported. |
 | **Control plane** | ⚠️ Foundry governs it, not LiteLLM | The connection lives in **Foundry's** control plane (Admin console → **Admin-connected models**), so admins approve and manage it centrally. LiteLLM stays a **data-plane model backend** — it does **not** become Foundry's governance/quota plane (for that, use APIM — Parts 1–3). |
 
@@ -612,6 +624,48 @@ python ../src/test/agent_foundry_litellm.py
 > ```
 >
 > Confirming the full path: **Foundry Agent Service → Model Gateway connection → LiteLLM (Container Apps, Entra ID) → Foundry**.
+
+</div>
+
+## Calling tools (MCP) and agents (A2A) through your gateway
+
+The table above says a BYO-gateway agent's tools "run Foundry-side". That is true of the tool **runtime** — but the tool's **target** can still be your gateway. A Foundry **MCP tool** can point at LiteLLM's `/mcp/` endpoint, so the *same* gateway governs the agent's **model** *and* its **tool** traffic. [agent_foundry_mcp_a2a_litellm.py](src/test/agent_foundry_mcp_a2a_litellm.py) adds an `MCPTool` (and, optionally, an `A2APreviewTool`) to the prompt agent, both pointed at LiteLLM.
+
+The catch is **auth**: Foundry Agent Service **rejects sensitive headers** (such as `Authorization`) inline on a tool — it returns `invalid_payload` and tells you to use a **project connection** instead. So you store the LiteLLM master key once in a **Custom keys** connection (key `Authorization`, value `Bearer <key>`) and pass its id as `project_connection_id`:
+
+```powershell
+# Create a Custom keys connection holding the LiteLLM bearer token (portal:
+# Management center > Connected resources > Custom keys; or via the ARM REST API),
+# then pass its resource id:
+$env:FOUNDRY_MCP_CONNECTION_ID = "/subscriptions/.../connections/litellm-mcp"
+python ../src/test/agent_foundry_mcp_a2a_litellm.py
+```
+
+<div class="tip" data-title="Real result (validated) — MCP tool through LiteLLM">
+
+> A Foundry prompt agent (`litellm-gateway/gpt-4o-mini`) with an `MCPTool` whose `server_url` is `{LiteLLM}/mcp/` answered an **Azure API Management** question by calling **MS Learn through LiteLLM** — model **and** tool on one gateway + one connection:
+>
+> ```
+> Created agent 'litellm-mcp-a2a-agent' (version 1) -> model 'litellm-gateway/gpt-4o-mini'
+> Tools (all via LiteLLM): MCPTool
+>
+> Agent reply (model + tools served through the LiteLLM gateway):
+> Azure API Management is a hybrid, multicloud management platform for APIs ...
+> (https://learn.microsoft.com/azure/api-management/api-management-key-concepts)
+> ```
+>
+> Path: **Foundry Agent Service → (model) LiteLLM → Foundry**, and **→ (MCP tool) LiteLLM → MS Learn**.
+
+</div>
+
+<div class="warning" data-title="Honest finding — A2A from a Foundry-hosted agent + LiteLLM">
+
+> The SDK *does* expose an `A2APreviewTool`, and Foundry authenticates to it via the same Custom-keys connection. But the end-to-end call is **blocked by LiteLLM's A2A agent card**, not by Foundry:
+>
+> - **Discovery path mismatch** — Foundry fetches the card at the **host-root** well-known URI (`{host}/.well-known/agent-card.json`, per the A2A spec), but LiteLLM serves it **under a path** (`/a2a/{agent}/.well-known/agent-card.json`). Foundry's fetch returns **404** even with `agent_card_path` set.
+> - **Non-TLS URLs** — the card LiteLLM produces advertises `http://` endpoint URLs (it doesn't honor `X-Forwarded-Proto` behind the Container Apps TLS proxy), which a remote A2A client can't call.
+>
+> Both are **LiteLLM-side** limitations. A2A **through LiteLLM still works for client-side orchestrators** — that is exactly **Part 2b** ([agent_a2a_litellm.py](src/test/agent_a2a_litellm.py)), which uses LiteLLM's documented `/a2a/{agent}` JSON-RPC path directly instead of spec-compliant card discovery.
 
 </div>
 
@@ -683,16 +737,16 @@ Both connections expose models the same way (`<connection>/<model>`) and support
 
 # Summary — model, tool, agent
 
-Every pattern in this lab answers the same three questions: can my gateway let an app (or a Foundry agent) **call a model**, **call a tool** (MCP), and **call another agent** (A2A) — through *one* control plane? Here is what each scenario delivers, all **validated end to end** against the deployed gateway.
+Every pattern in this lab answers the same three questions: can my gateway let an app (or a Foundry agent) **call a model**, **call a tool** (MCP), and **call another agent** (A2A) — through *one* control plane? Here is what each scenario delivers. Rows marked ✅ are **built and validated end to end** in this lab; 🔵 rows are **documented preview** capabilities (portal/control-plane-driven, not deployed here).
 
 | Gateway scenario | Call a **model** | Call a **tool** (MCP) | Call an **agent** (A2A) |
 | --- | --- | --- | --- |
 | **APIM — model load balancing** *(Part 1)* | ✅ `chat/completions` load-balanced across **2 Foundry regions** with retries + circuit breaker | — | — |
 | **APIM — MCP passthrough** *(Part 2)* | ✅ same inference API | ✅ **MS Learn MCP** via the `learn-mcp` passthrough API | — |
 | **APIM — A2A passthrough** *(Part 2b)* | ✅ same inference API | ✅ (as Part 2) | ✅ **dummy A2A agent** via the `dummy-a2a` passthrough API |
-| **Foundry native AI Gateway** *(Part 3)* | ✅ **per-project token limits** (portal-attached APIM v2) | — *(model governance only)* | — |
+| **Foundry native AI Gateway** *(Part 3)* | ✅ **per-project token limits** (portal-attached APIM v2) | 🔵 **MCP tools auto-routed through APIM** *(preview, portal)* | 🔵 **A2A agent registration & governance** *(preview)* |
 | **LiteLLM — bring your own** *(Parts 4–5)* | ✅ OpenAI-compatible, Entra ID, multi-region | ✅ `mcp_servers` re-exposed at `/mcp` | ✅ **A2A Agent Gateway** at `/a2a/{agent}` *(needs the Postgres backend)* |
-| **Your gateway *into* Foundry** *(Part 5)* | ✅ Foundry Agent Service runs its **model** through APIM **or** LiteLLM | — *(tools run Foundry-side, not through your gateway)* | — |
+| **Your gateway *into* Foundry** *(Part 5)* | ✅ Foundry Agent Service runs its **model** through APIM **or** LiteLLM | ✅ Foundry agent calls **MS Learn MCP via LiteLLM** *(auth via a project connection)* | ⚠️ A2A tool definable, but **blocked by LiteLLM's path-based / `http://` agent card** |
 
 <div class="tip" data-title="The big picture">
 
@@ -700,9 +754,9 @@ Every pattern in this lab answers the same three questions: can my gateway let a
 >
 > - **APIM** does all three *today* with plain passthrough APIs — proven in Parts 1, 2, and 2b on a single subscription key.
 > - **LiteLLM** matches it once it has a database (the **Postgres sidecar**) — model + MCP + A2A on one master key.
-> - **Foundry's native gateway** and the **into-Foundry connections** focus on **model** governance; tools and agents are then orchestrated Foundry-side.
+> - **Foundry's native gateway** governs all three too (**model** token limits today; **MCP tools** auto-routed through APIM and **A2A agent** registration in preview). And **into Foundry** (Part 5), a Foundry agent runs its **model** *and* a **MS Learn MCP tool** through LiteLLM on one connection — only Foundry-hosted **A2A → LiteLLM** is blocked, by LiteLLM's non-standard agent card.
 >
-> Legend: ✅ = built & validated in this lab · — = not part of that scenario.
+> Legend: ✅ = built & validated in this lab · 🔵 = documented preview (not deployed here) · ⚠️ = attempted, blocked by a gateway-side limitation · — = not part of that scenario.
 
 </div>
 
