@@ -371,6 +371,15 @@ Legend: ✅ supported · ⚠️ conditional · ⛔ not supported.
 - Registering an external A2A agent in the **Foundry control plane** returns a Foundry-generated **proxy URL**; Foundry discovers the card at `/.well-known/agent-card.json` and adds access control and monitoring through the AI gateway.
 - For Foundry-hosted A2A endpoints, **all** A2A URLs (including the card) require **Microsoft Entra ID** auth — anonymous card access isn't supported — and the caller needs the **Foundry User** role on the project.
 
+**Host root vs custom path (e.g. behind APIM).** You don't have to serve the card at the gateway **host root**. Because the card location is `target` + `AgentCardPath`, you can point the connection `target` at an APIM **sub-path** API (for example `https://gw.azure-api.net/agent-b`) and set `AgentCardPath` in the connection `metadata` to the relative card path. This lets **multiple A2A agents share one gateway** on different paths. The host root is only the default that applies when `AgentCardPath` is left unset (the A2A client resolves `.well-known/agent-card.json` against the target's host).
+
+```mermaid
+flowchart LR
+    A["Foundry agent (RemoteA2A connection)"] -->|"GET  target + AgentCardPath"| C["Agent card (host root OR custom path)"]
+    A -->|"POST message/send to card.url"| M["A2A message endpoint"]
+    C -. "card.url tells the caller where to POST" .-> M
+```
+
 **Authentication.** An A2A connection supports:
 
 - **Key-based** — a header credential (e.g. `Authorization: Bearer <token>` or `x-api-key: <key>`); Agent Service attaches it to each request.
@@ -389,6 +398,33 @@ Legend: ✅ supported · ⚠️ conditional · ⛔ not supported.
 **Behind a gateway (e.g. APIM).** Foundry **can** use managed identity to reach a remote MCP server fronted by APIM — **but only if the gateway validates the Entra token**. APIM must run a `validate-azure-ad-token` (or `validate-jwt`) inbound policy configured with the expected **audience** and accept the agent/project managed identity's **application (client) ID**. If the gateway doesn't validate the token (or only checks a subscription key), the managed-identity token is ignored and you fall back to key-based auth — the same principle that governs managed-identity **model** auth.
 
 **Troubleshooting (Entra).** `401` = wrong/unaccepted audience, or the endpoint doesn't accept Entra tokens; `403` = the identity is missing role assignments (changes take up to ~10 minutes to propagate).
+
+## APIM as the front door for LiteLLM (Entra ID in, key out)
+
+You can put **APIM in front of LiteLLM** so callers authenticate with **Microsoft Entra ID** while the **LiteLLM master key stays server-side**. APIM validates the inbound token (`validate-azure-ad-token`) and injects the LiteLLM key on the backend call (`set-header Authorization: Bearer sk-…`). This is the **recommended enterprise pattern**: centralized auth, hidden secrets, throttling, and observability — clients never see the LiteLLM key.
+
+```mermaid
+flowchart LR
+    MI["Foundry agent / project<br/>managed identity"] -->|"Entra ID token"| APIM
+    subgraph APIM["Azure API Management"]
+      direction TB
+      V["validate-azure-ad-token<br/>(audience + client ID)"] --> K["inject LiteLLM master key"]
+    end
+    K -->|"Bearer sk-litellm-…"| LL["LiteLLM gateway<br/>/v1 models · /mcp · /a2a"]
+    LL --> F["Foundry models /<br/>MCP tools / A2A agents"]
+```
+
+**Works for all three target types:**
+
+- **Models** — a `ModelGateway` / `ApiManagement` connection with managed identity (audience `https://cognitiveservices.azure.com/`). APIM validates the token, then calls LiteLLM's OpenAI-compatible route with the key. (This is essentially what the native AI Gateway configures for you.)
+- **MCP tools** — a `RemoteTool` connection with `AgenticIdentityToken` + **audience**. APIM validates, injects the key, and forwards to LiteLLM's `/mcp/`.
+- **A2A agents** — a `RemoteA2A` connection with `ProjectManagedIdentity` / `AgenticIdentityToken` + **audience**, plus a custom `AgentCardPath` pointing at the APIM A2A path. APIM validates the token and injects the key to LiteLLM's `/a2a/…`.
+
+**Advice / caveats.**
+
+- ✅ **Recommended for models and MCP tools** — it's the standard secret-hiding gateway pattern and is fully additive (new APIM APIs + connections).
+- ⚠️ APIM must validate the token with the **correct audience** and accept the managed identity's **application (client) ID**; otherwise the token is ignored and you fall back to key-based.
+- ⚠️ **A2A discovery caveat** — confirm whether the **card fetch** carries the MI token. If the card path is Entra-protected but discovery is unauthenticated, keep the **card path anonymous** and protect only the **message endpoint**. Using a custom `AgentCardPath` also means a second A2A agent no longer collides with an existing host-root card on the same gateway.
 
 **Docs:**
 
