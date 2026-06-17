@@ -144,6 +144,29 @@ python ../src/test/test_burst.py               # concurrent burst — forces fai
 
 > **Verified:** 60 concurrent requests returned **60 × HTTP 200** (zero visible 429s — the retry policy absorbed them), split **East US 2: 39 / Sweden Central: 21**: priority‑1 absorbed traffic until the 8K‑TPM cap, then the circuit breaker failed over to priority‑2.
 
+**Test from the APIM portal (no code).** Open the APIM instance → **APIs → Inference API → Test → "Creates a completion for the chat message"**, then fill in:
+
+| Field | Value |
+| --- | --- |
+| Template parameter `deployment-id` | `gpt-4o-mini` |
+| Query parameter | **name** `api-version` (not `version`), **value** `2024-10-21` |
+| Header | `Content-Type: application/json` |
+
+Request body (Raw):
+
+```json
+{
+  "messages": [
+    { "role": "system", "content": "You are a concise assistant. Answer in one sentence." },
+    { "role": "user", "content": "What does an AI gateway do?" }
+  ],
+  "max_tokens": 100,
+  "temperature": 0.7
+}
+```
+
+The Test console adds the `Ocp-Apim-Subscription-Key` for you; APIM injects the Foundry auth with its managed identity (no model key needed). The final URL is `…/inference/openai/deployments/gpt-4o-mini/chat/completions?api-version=2024-10-21`. **Send** returns `200` with `choices[0].message.content`, and the `x-ms-region` response header shows which region served the call.
+
 ## 2. Govern the MCP tool and A2A agent through APIM
 
 Agents call **tools** (MCP) and **other agents** (A2A). In an enterprise you want both to flow **through your gateway** for auth, rate limiting, and tracing. Because MCP (streamable HTTP) and A2A (JSON-RPC 2.0 over HTTP) are just HTTP, APIM governs them with a simple **passthrough API** — no special feature required.
