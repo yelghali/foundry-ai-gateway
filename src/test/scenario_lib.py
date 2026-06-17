@@ -27,10 +27,69 @@ See scenario_config.py for the precedence rules.
 """
 
 import os
+import sys
 
 from azure.identity import DefaultAzureCredential
 from azure.ai.projects import AIProjectClient
 from azure.ai.projects.models import PromptAgentDefinition, MCPTool, A2APreviewTool
+
+# --- Pretty colors (ANSI) ------------------------------------------------------
+# Enable ANSI on Windows terminals and honor NO_COLOR / non-tty output.
+if os.name == "nt":
+    os.system("")  # turns on virtual-terminal processing in the console
+_COLOR = sys.stdout.isatty() and os.environ.get("NO_COLOR") is None
+
+BOLD = "1"
+DIM = "2"
+RED = "31"
+GREEN = "32"
+YELLOW = "33"
+BLUE = "34"
+MAGENTA = "35"
+CYAN = "36"
+GREY = "90"
+
+
+def _c(text: str, *codes: str) -> str:
+    """Wrap text in ANSI color codes (no-op when colors are disabled)."""
+    if not _COLOR or not codes:
+        return text
+    return f"\033[{';'.join(codes)}m{text}\033[0m"
+
+
+def short_conn(conn_id: str) -> str:
+    """Reduce a full ARM connection id to just its connection name for display."""
+    if not conn_id:
+        return ""
+    return conn_id.rstrip("/").split("/")[-1]
+
+
+def _section(title: str, calls) -> None:
+    """Print a clear banner for a sub-scenario and the URL(s)/connection(s) it calls."""
+    rule = _c("─" * 78, CYAN)
+    print()
+    print(rule)
+    print(_c(f" {title}", BOLD, CYAN))
+    for what, value in (calls or []):
+        print(f"    {_c(f'{what:<13}', BOLD, YELLOW)} {_c('→', GREY)} {_c(str(value), BLUE)}")
+    print(rule)
+
+
+def _print_record(label: str, ok: bool, detail: str) -> None:
+    badge = _c(" PASS ", BOLD, "30", "42") if ok else _c(" FAIL ", BOLD, "30", "41")
+    name = _c(label, BOLD, GREEN if ok else RED)
+    print(f"  {badge} {name}")
+    print(f"        {_c(detail, DIM)}")
+
+
+def print_header(title: str, lines) -> None:
+    """Print a colored scenario header banner."""
+    print(_c("═" * 78, MAGENTA))
+    print(_c(f" {title}", BOLD, MAGENTA))
+    for ln in lines:
+        print(_c(f" {ln}", DIM))
+    print(_c("═" * 78, MAGENTA))
+# -------------------------------------------------------------------------------
 
 # Agents persist by default so every scenario is visible in the portal (Build > Agents).
 # Set KEEP_AGENT=0 (or false/no) to clean them up after the run instead.
@@ -47,8 +106,14 @@ def connect(endpoint: str) -> AIProjectClient:
     return AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential())
 
 
-def run_subscenario(project, results, label, definition, question) -> bool:
-    """Create a prompt agent, run one turn, record PASS/FAIL, optionally persist."""
+def run_subscenario(project, results, label, definition, question, *, title=None, calls=None) -> bool:
+    """Create a prompt agent, run one turn, record PASS/FAIL, optionally persist.
+
+    Pass `title` + `calls` to print a clear section banner (with the URLs/connections
+    this sub-scenario reaches) before running it.
+    """
+    if title is not None or calls:
+        _section(title or label, calls)
     agent = None
     openai_client = project.get_openai_client()
     conversation = None
@@ -62,11 +127,11 @@ def run_subscenario(project, results, label, definition, question) -> bool:
         )
         text = (response.output_text or "").strip().replace("\n", " ")
         results.append((label, True, text[:160]))
-        print(f"  [PASS] {label}: {text[:160]}")
+        _print_record(label, True, text[:160])
         return True
     except Exception as exc:  # noqa: BLE001 - report honestly, keep going
         results.append((label, False, f"{type(exc).__name__}: {str(exc)[:160]}"))
-        print(f"  [FAIL] {label}: {type(exc).__name__}: {str(exc)[:200]}")
+        _print_record(label, False, f"{type(exc).__name__}: {str(exc)[:200]}")
         return False
     finally:
         if not KEEP_AGENT:
@@ -102,14 +167,19 @@ def tool_def(model_ref: str, mcp_url: str, mcp_conn_id: str, governed_by: str) -
     )
 
 
-def a2a_def(driver_model: str, a2a_url: str, a2a_conn_id: str) -> PromptAgentDefinition:
+def a2a_def(
+    driver_model: str,
+    a2a_url: str,
+    a2a_conn_id: str,
+    description: str = "A remote A2A specialist, reached directly at its host root.",
+) -> PromptAgentDefinition:
     """Sub-scenario (c): an A2A call to the remote specialist (orchestrated by a native model)."""
     return PromptAgentDefinition(
         model=driver_model,
         instructions="Consult the dummy_specialist A2A agent. Be concise.",
         tools=[A2APreviewTool(
             name="dummy_specialist",
-            description="A remote A2A specialist, reached directly at its host root.",
+            description=description,
             base_url=a2a_url,
             project_connection_id=a2a_conn_id,
         )],
@@ -117,8 +187,13 @@ def a2a_def(driver_model: str, a2a_url: str, a2a_conn_id: str) -> PromptAgentDef
 
 
 def print_summary(scenario_title: str, results) -> None:
-    print(f"\n== {scenario_title} — SUMMARY ==")
+    print()
+    print(_c("═" * 78, MAGENTA))
+    print(_c(f" {scenario_title} — SUMMARY", BOLD, MAGENTA))
+    print(_c("═" * 78, MAGENTA))
     for label, ok, detail in results:
-        print(f"  {'PASS' if ok else 'FAIL'}  {label:<30} {detail}")
+        badge = _c(" PASS ", BOLD, "30", "42") if ok else _c(" FAIL ", BOLD, "30", "41")
+        name = _c(f"{label:<34}", BOLD, GREEN if ok else RED)
+        print(f"  {badge} {name} {_c(detail[:90], DIM)}")
     if KEEP_AGENT:
-        print("\nAgents left in the client project (Build > Agents). Set KEEP_AGENT=0 to clean up.")
+        print(_c("\n Agents left in the client project (Build > Agents). Set KEEP_AGENT=0 to clean up.", DIM))

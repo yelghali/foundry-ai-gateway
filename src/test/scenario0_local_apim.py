@@ -32,11 +32,38 @@ Usage (PowerShell):
 
 import asyncio
 import os
+import sys
 import uuid
 
 import httpx
 from agent_framework import MCPStreamableHTTPTool
 from agent_framework.openai import OpenAIChatCompletionClient
+
+# --- Pretty colors (ANSI) ------------------------------------------------------
+# Enable ANSI on Windows terminals and honor NO_COLOR / non-tty output.
+if os.name == "nt":
+    os.system("")  # turns on virtual-terminal processing in the console
+_COLOR = sys.stdout.isatty() and os.environ.get("NO_COLOR") is None
+
+
+def _c(text: str, *codes: str) -> str:
+    """Wrap text in ANSI color codes (no-op when colors are disabled)."""
+    if not _COLOR or not codes:
+        return text
+    return f"\033[{';'.join(codes)}m{text}\033[0m"
+
+
+RESET = "0"
+BOLD = "1"
+DIM = "2"
+RED = "31"
+GREEN = "32"
+YELLOW = "33"
+BLUE = "34"
+MAGENTA = "35"
+CYAN = "36"
+GREY = "90"
+# -------------------------------------------------------------------------------
 
 GATEWAY_URL = os.environ["APIM_GATEWAY_URL"].rstrip("/")
 API_KEY = os.environ["APIM_API_KEY"]
@@ -46,6 +73,8 @@ API_VERSION = os.environ.get("API_VERSION", "2024-10-21")
 MCP_PATH = os.environ.get("MCP_API_PATH", "learn-mcp/mcp")
 MCP_URL = f"{GATEWAY_URL}/{MCP_PATH}"
 A2A_URL = os.environ.get("A2A_URL_APIM", f"{GATEWAY_URL}/dummy-a2a")
+# Effective Azure-style route the MAF chat client calls on the APIM inference API.
+MODEL_URL = f"{GATEWAY_URL}/{API_PATH}/openai/deployments/{MODEL}/chat/completions?api-version={API_VERSION}"
 
 QUESTION_MODEL = "In one sentence, what does an AI gateway do?"
 QUESTION_TOOL = "Search Microsoft Learn: what is Azure API Management? Answer in one sentence."
@@ -99,14 +128,32 @@ def consult_specialist(question: str) -> str:
     return call_a2a_agent(A2A_URL, question, headers={"api-key": API_KEY})
 
 
+def _section(title: str, calls: list) -> None:
+    """Print a clear banner for a sub-scenario and the gateway URL(s) it calls."""
+    rule = _c("─" * 78, CYAN)
+    print()
+    print(rule)
+    print(_c(f" {title}", BOLD, CYAN))
+    for what, url in calls:
+        print(f"    {_c(f'{what:<12}', BOLD, YELLOW)} {_c('→', GREY)} {_c(url, BLUE)}")
+    print(rule)
+
+
 def _record(results, label, ok, detail) -> None:
     results.append((label, ok, detail))
-    print(f"  [{'PASS' if ok else 'FAIL'}] {label}: {detail[:180]}")
+    badge = _c(" PASS ", BOLD, "30", "42") if ok else _c(" FAIL ", BOLD, "30", "41")
+    name = _c(label, BOLD, GREEN if ok else RED)
+    print(f"  {badge} {name}")
+    print(f"        {_c(detail[:180], DIM)}")
 
 
 async def run_model(client, results) -> None:
     """0a — a plain model call through the APIM gateway."""
     label = "sc0-local-apim-model"
+    _section(
+        "0a  MODEL  — chat completion through the APIM inference gateway",
+        [("model", MODEL_URL)],
+    )
     try:
         agent = client.as_agent(
             name="sc0-model",
@@ -122,6 +169,10 @@ async def run_model(client, results) -> None:
 async def run_tool(client, results) -> None:
     """0b — an MS Learn MCP tool call governed by APIM."""
     label = "sc0-local-apim-tool"
+    _section(
+        "0b  TOOL   — MS Learn MCP tool, governed by APIM (agent reasons with the model, then calls the tool)",
+        [("model", MODEL_URL), ("MCP tool", MCP_URL)],
+    )
     try:
         # Pass our own httpx client so the api-key header authenticates to APIM on every MCP request.
         async with httpx.AsyncClient(headers={"api-key": API_KEY}, follow_redirects=True) as http_client:
@@ -148,6 +199,10 @@ async def run_tool(client, results) -> None:
 async def run_a2a(client, results) -> None:
     """0c — an A2A call to the remote specialist, routed through APIM."""
     label = "sc0-local-apim-a2a"
+    _section(
+        "0c  A2A    — remote specialist agent via APIM (agent reasons with the model, then calls the A2A agent)",
+        [("model", MODEL_URL), ("A2A agent", A2A_URL)],
+    )
     try:
         agent = client.as_agent(
             name="sc0-a2a",
@@ -168,17 +223,24 @@ async def main() -> None:
     client = make_client()
     results: list = []
 
-    print("== Scenario 0 — LOCAL AGENTS (Microsoft Agent Framework) via APIM ==")
-    print("   In-memory MAF agents, NO Foundry account / connection — model, tool and A2A")
-    print("   all reach the enterprise through the APIM gateway on one subscription key.\n")
+    print(_c("═" * 78, MAGENTA))
+    print(_c(" Scenario 0 — LOCAL AGENTS (Microsoft Agent Framework) via APIM", BOLD, MAGENTA))
+    print(_c(" In-memory MAF agents, NO Foundry account / connection — model, tool and A2A", DIM))
+    print(_c(" all reach the enterprise through the APIM gateway on one subscription key.", DIM))
+    print(_c("═" * 78, MAGENTA))
 
     await run_model(client, results)
     await run_tool(client, results)
     await run_a2a(client, results)
 
-    print("\n== Scenario 0 — LOCAL AGENTS via APIM — SUMMARY ==")
+    print()
+    print(_c("═" * 78, MAGENTA))
+    print(_c(" Scenario 0 — SUMMARY", BOLD, MAGENTA))
+    print(_c("═" * 78, MAGENTA))
     for label, ok, detail in results:
-        print(f"  {'PASS' if ok else 'FAIL'}  {label:<30} {detail[:120]}")
+        badge = _c(" PASS ", BOLD, "30", "42") if ok else _c(" FAIL ", BOLD, "30", "41")
+        name = _c(f"{label:<24}", BOLD, GREEN if ok else RED)
+        print(f"  {badge} {name} {_c(detail[:90], DIM)}")
 
 
 if __name__ == "__main__":

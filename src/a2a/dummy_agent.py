@@ -14,18 +14,33 @@ just returns canned advice that echoes the caller's question — enough to prove
 the request flowed through the gateway end to end.
 
 Env:
-  PORT            listening port (default 8080)
-  A2A_PUBLIC_URL  url advertised in the agent card (default "/")
+  PORT             listening port (default 8080)
+  A2A_PUBLIC_URL   url advertised in the agent card (default "/")
+  A2A_FORWARD_URL  optional. When set, this agent acts as a host-root SHIM: instead of
+                   answering message/send locally it forwards the JSON-RPC body to this
+                   URL (e.g. a LiteLLM A2A gateway endpoint) and relays the response.
+                   The agent card is still served locally at the host root so a managed
+                   client (Foundry RemoteA2A) can discover it; the actual agent-to-agent
+                   message leg then flows THROUGH the forward target.
+  A2A_FORWARD_AUTH optional. Value for the Authorization header sent on the forwarded
+                   request (e.g. "Bearer sk-..."), so the shim authenticates to the
+                   gateway on the client's behalf.
 """
 
 import json
 import os
+import urllib.error
+import urllib.request
 import uuid
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PORT = int(os.environ.get("PORT", "8080"))
 PUBLIC_URL = os.environ.get("A2A_PUBLIC_URL", "/")
+# When set, run as a host-root shim that forwards message/send to this gateway URL
+# (the card is still served locally so a managed A2A client can discover the agent).
+FORWARD_URL = os.environ.get("A2A_FORWARD_URL", "").strip()
+FORWARD_AUTH = os.environ.get("A2A_FORWARD_AUTH", "").strip()
 
 AGENT_CARD = {
     "name": "Dummy Specialist Agent",
@@ -96,6 +111,24 @@ def _error(request_id, code: int, message: str) -> dict:
     return {"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}}
 
 
+def _forward(raw_body: bytes) -> tuple[int, bytes]:
+    """Relay a JSON-RPC request to the configured forward target (e.g. LiteLLM A2A).
+
+    Returns (status_code, response_bytes). The response is passed back to the caller
+    verbatim, so the gateway's own A2A reply (a Message-kind result) flows straight
+    through this host-root shim.
+    """
+    req = urllib.request.Request(FORWARD_URL, data=raw_body, method="POST")
+    req.add_header("Content-Type", "application/json")
+    if FORWARD_AUTH:
+        req.add_header("Authorization", FORWARD_AUTH)
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            return resp.status, resp.read()
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read()
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "DummyA2A/1.0"
     # Speak HTTP/1.1 so clients that use keep-alive / chunked uploads (e.g. .NET
@@ -161,8 +194,18 @@ class Handler(BaseHTTPRequestHandler):
         method = req.get("method", "")
         # Accept the slash form and the PascalCase SDK alias.
         if method in ("message/send", "SendMessage", "message/stream"):
-            question = _extract_text(req.get("params", {}))
-            self._send_json(200, _make_task_result(request_id, question))
+            if FORWARD_URL:
+                # Host-root shim: forward the call to the gateway (e.g. LiteLLM A2A)
+                # with the Authorization header injected, and relay its reply verbatim.
+                status, body = _forward(raw)
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            else:
+                question = _extract_text(req.get("params", {}))
+                self._send_json(200, _make_task_result(request_id, question))
         else:
             self._send_json(200, _error(request_id, -32601, f"Method not found: {method}"))
 

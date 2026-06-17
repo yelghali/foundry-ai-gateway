@@ -41,23 +41,31 @@ def main() -> None:
     project = s.connect(ENDPOINT)
     results: list = []
 
-    print("== Scenario 2 — AI GATEWAY NATIVE (APIM ApiManagement connection) ==")
-    print("   2a tries the managed-identity (AAD) connection first, then falls back to the")
-    print("   subscription-key connection. The tool leg is driven by whichever model worked.\n")
+    s.print_header(
+        "Scenario 2 — AI GATEWAY NATIVE (APIM ApiManagement connection)",
+        [
+            "2a tries the managed-identity (AAD) connection first, then falls back to the",
+            "subscription-key connection. The tool leg is driven by whichever model worked.",
+        ],
+    )
 
     # 2a — MODEL: native ApiManagement connection, managed-identity FIRST, key fallback.
     mi_ok = s.run_subscenario(
         project, results, "sc2-aigateway-native-model-mi",
         s.model_def(MI_MODEL),
         s.QUESTION_MODEL,
+        title="2a  MODEL  — native ApiManagement connection (managed identity first)",
+        calls=[("model conn", MI_MODEL)],
     )
     working_model = MI_MODEL if mi_ok else KEY_MODEL
     if not mi_ok:
-        print("   -> managed-identity model leg was not accepted; trying the key connection.")
+        print(s._c("   → managed-identity model leg was not accepted; trying the key connection.", s.GREY))
         s.run_subscenario(
             project, results, "sc2-aigateway-native-model-key",
             s.model_def(KEY_MODEL),
             s.QUESTION_MODEL,
+            title="2a' MODEL  — native ApiManagement connection (subscription key fallback)",
+            calls=[("model conn", KEY_MODEL)],
         )
 
     # 2b — TOOL: MS Learn MCP behind APIM, driven by the model that worked.
@@ -66,6 +74,12 @@ def main() -> None:
             project, results, "sc2-aigateway-native-tool",
             s.tool_def(working_model, MCP_APIM_URL, MCP_APIM_CONN_ID, "APIM (native AI Gateway)"),
             s.QUESTION_TOOL,
+            title="2b  TOOL   — MS Learn MCP via APIM (native AI Gateway)",
+            calls=[
+                ("driver model", working_model),
+                ("MCP url", MCP_APIM_URL),
+                ("MCP conn", s.short_conn(MCP_APIM_CONN_ID)),
+            ],
         )
 
     # 2c — A2A: remote specialist via a RemoteA2A connection (native driver model).
@@ -74,6 +88,12 @@ def main() -> None:
             project, results, "sc2-aigateway-native-a2a",
             s.a2a_def(DRIVER_MODEL, A2A_URL, A2A_CONN_ID),
             s.QUESTION_A2A,
+            title="2c  A2A    — remote specialist (RemoteA2A connection, direct host root)",
+            calls=[
+                ("driver model", DRIVER_MODEL),
+                ("A2A url", A2A_URL),
+                ("A2A conn", s.short_conn(A2A_CONN_ID)),
+            ],
         )
 
     s.print_summary("Scenario 2 — AI GATEWAY NATIVE", results)
