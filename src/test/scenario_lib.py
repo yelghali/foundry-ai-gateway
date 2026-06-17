@@ -1,12 +1,12 @@
 """
-Shared helpers for the three CLIENT-side consumption scenarios.
+Shared helpers for the three Foundry-based consumption scenarios (1, 2, 3).
 
-The client Foundry (foundry-client) hosts NO enterprise models of its own. It reaches
-the enterprise resources three different ways — one "scenario" per connection style:
+Each scenario now runs against its OWN dedicated client Foundry account, because the
+native AI Gateway integration is configured at the Foundry *resource* level:
 
-    Scenario 1  CUSTOM (APIM)        CustomKeys connections holding raw APIM gateway URLs
-    Scenario 2  AI GATEWAY NATIVE    Foundry's first-class ApiManagement connection
-    Scenario 3  AI GATEWAY LITELLM   a ModelGateway (bring-your-own) connection to LiteLLM
+    Scenario 1  client-foundry-sc1   CUSTOM (APIM)      managed-identity-first, key fallback
+    Scenario 2  client-foundry-sc2   AI GATEWAY NATIVE  Foundry's ApiManagement connection
+    Scenario 3  client-foundry-sc3   AI GATEWAY BYO     ModelGateway connection to LiteLLM
 
 Every scenario runs the SAME three sub-scenarios against the SAME remote targets:
 
@@ -18,17 +18,11 @@ so the only thing that changes between scenarios is HOW the client connects, not
 calls. Each sub-scenario creates its own clearly-named prompt agent, runs one turn, and
 records a PASS/FAIL line (a blocked path is reported honestly instead of aborting the run).
 
-Environment variables (see infra/client-foundry.bicep outputs / deploy-client-foundry.ps1):
-    CLIENT_PROJECT_ENDPOINT   https://foundry-client-<suffix>.services.ai.azure.com/api/projects/aigateway-client
-    MODEL_NAME                model id exposed by the gateways          (default gpt-4o-mini)
-    DRIVER_MODEL              native deployment that ORCHESTRATES A2A   (default MODEL_NAME)
-    MCP_APIM_URL              {apim}/learn-mcp/mcp
-    MCP_APIM_CONN_ID          resource id of the mslearn-mcp-apim connection
-    MCP_LITELLM_URL           {litellm}/mcp/
-    MCP_LITELLM_CONN_ID       resource id of the mslearn-mcp-litellm connection
-    A2A_DIRECT_URL            remote A2A agent host root
-    A2A_DIRECT_CONN_ID        resource id of the dummy-a2a-direct connection
-    KEEP_AGENT                set to 1 to persist agents for portal viewing (Build > Agents)
+The per-scenario endpoints, connection IDs and gateway URLs are read from
+infra/scenario-outputs.json (written by deploy-client-foundry.ps1); env vars override.
+See scenario_config.py for the precedence rules.
+
+    KEEP_AGENT   set to 1 to persist agents for portal viewing (Build > Agents)
 """
 
 import os
@@ -37,19 +31,7 @@ from azure.identity import DefaultAzureCredential
 from azure.ai.projects import AIProjectClient
 from azure.ai.projects.models import PromptAgentDefinition, MCPTool, A2APreviewTool
 
-ENDPOINT = os.environ["CLIENT_PROJECT_ENDPOINT"]
-MODEL_NAME = os.environ.get("MODEL_NAME", "gpt-4o-mini")
-# The managed A2A tool 500s when the calling agent's model is a *gateway* connection, so
-# the A2A sub-scenario is always driven by a NATIVE deployment on the client account.
-DRIVER_MODEL = os.environ.get("DRIVER_MODEL", MODEL_NAME)
 KEEP_AGENT = os.environ.get("KEEP_AGENT", "").strip().lower() in ("1", "true", "yes")
-
-MCP_APIM_URL = os.environ.get("MCP_APIM_URL")
-MCP_APIM_CONN_ID = os.environ.get("MCP_APIM_CONN_ID")
-MCP_LITELLM_URL = os.environ.get("MCP_LITELLM_URL")
-MCP_LITELLM_CONN_ID = os.environ.get("MCP_LITELLM_CONN_ID")
-A2A_DIRECT_URL = os.environ.get("A2A_DIRECT_URL")
-A2A_DIRECT_CONN_ID = os.environ.get("A2A_DIRECT_CONN_ID")
 
 # One canonical question per sub-scenario, reused across all three scenarios.
 QUESTION_MODEL = "In one sentence, what does an AI gateway do?"
@@ -57,9 +39,9 @@ QUESTION_TOOL = "Search Microsoft Learn: what is Azure API Management? Answer in
 QUESTION_A2A = "Ask the specialist: should I put a gateway in front of my agents?"
 
 
-def connect() -> AIProjectClient:
-    """Open a client against the client Foundry project."""
-    return AIProjectClient(endpoint=ENDPOINT, credential=DefaultAzureCredential())
+def connect(endpoint: str) -> AIProjectClient:
+    """Open a client against a scenario's own client Foundry project."""
+    return AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential())
 
 
 def run_subscenario(project, results, label, definition, question) -> bool:
@@ -117,7 +99,7 @@ def tool_def(model_ref: str, mcp_url: str, mcp_conn_id: str, governed_by: str) -
     )
 
 
-def a2a_def(driver_model: str) -> PromptAgentDefinition:
+def a2a_def(driver_model: str, a2a_url: str, a2a_conn_id: str) -> PromptAgentDefinition:
     """Sub-scenario (c): an A2A call to the remote specialist (orchestrated by a native model)."""
     return PromptAgentDefinition(
         model=driver_model,
@@ -125,8 +107,8 @@ def a2a_def(driver_model: str) -> PromptAgentDefinition:
         tools=[A2APreviewTool(
             name="dummy_specialist",
             description="A remote A2A specialist, reached directly at its host root.",
-            base_url=A2A_DIRECT_URL,
-            project_connection_id=A2A_DIRECT_CONN_ID,
+            base_url=a2a_url,
+            project_connection_id=a2a_conn_id,
         )],
     )
 

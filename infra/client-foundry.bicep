@@ -1,51 +1,28 @@
 // =====================================================================================
-//  Client Foundry — the "functional agent" that consumes ENTERPRISE resources
+//  Client Foundry orchestrator — THREE dedicated client Foundry accounts, one per scenario
 //  (companion to main.bicep; deploy AFTER main.bicep + litellm-foundry.bicep + a2a-agent)
 //
-//  Topology this file completes:
+//  The consumer side of the lab is split into one Foundry resource per gateway pattern, so
+//  each account has a small, clear set of connections (the native AI Gateway integration is
+//  configured at the Foundry *resource* level, which is why separate accounts are cleaner):
 //
-//    ┌──────────────── Enterprise (models) ────────────────┐
-//    │  foundry1 (eastus2)      foundry2 (swedencentral)    │   <- main.bicep
-//    │        └──────── APIM backend pool (load balanced) ──┘   <- "scenario 1"
-//    │                         ▲           ▲                    │
-//    └─────────────────────────┼───────────┼────────────────────┘
-//                              │           │
-//        ApiManagement conn ───┘           └─── ModelGateway conn (via LiteLLM)
-//                              │           │
-//                       ┌──────┴───────────┴──────┐
-//                       │   CLIENT Foundry        │   <- THIS FILE (no models of its own)
-//                       │   functional agent      │
-//                       └─────────────────────────┘
+//    Scenario 1  client-foundry-sc1   CUSTOM (APIM)        subscription-key custom connection
+//    Scenario 2  client-foundry-sc2   AI GATEWAY NATIVE    Foundry ApiManagement connection (MI-first, key fallback)
+//    Scenario 3  client-foundry-sc3   AI GATEWAY BYO       LiteLLM ModelGateway connection
 //
-//  For the heavy lifting the client reaches the enterprise models ONLY through
-//  gateway connections, three ways:
-//    1. ApiManagement connection  -> APIM /inference/openai      ("AI Gateway native")
-//    2. ModelGateway  connection  -> LiteLLM                     ("BYO gateway")
-//    3. CustomKeys    connection  -> APIM /inference/openai      ("custom, gateway URL")
+//  (Scenario 0 needs no Foundry — it is a local Microsoft Agent Framework app that reaches
+//  the APIM passthrough APIs directly; see src/test/scenario0_local_apim.py.)
 //
-//  ...and reaches tools the same governed way:
-//    - MS Learn MCP behind APIM     (CustomKeys conn -> {apim}/learn-mcp/mcp)
-//    - MS Learn MCP behind LiteLLM  (CustomKeys conn -> {litellm}/mcp/)
-//    - Remote A2A specialist        (RemoteA2A conn  -> the agent's host-root card)
-//
-//  It also hosts ONE small native "driver" model deployment. Foundry's managed A2A
-//  tool 500s when the calling agent's model is itself resolved through a gateway
-//  connection, so the A2A agent must be driven by a real local deployment. (Plain
-//  model calls and the MCP tool work fine over the gateway connections.)
+//  Every scenario account also hosts ONE small native gpt-4o-mini "driver" deployment, used
+//  only to orchestrate the managed A2A tool (which 500s when the calling agent's model is a
+//  gateway connection). The model and MCP legs deliberately go through the gateway.
 // =====================================================================================
 
-// ------------------
-//    PARAMETERS
-// ------------------
-
-@description('Location for the client Foundry account.')
+@description('Location for the client Foundry accounts.')
 param location string = resourceGroup().location
 
-@description('Base name of the client Foundry account (a unique suffix is appended).')
-param clientAccountBaseName string = 'foundry-client'
-
-@description('Name of the project created on the client account (the agent runtime).')
-param clientProjectName string = 'aigateway-client'
+@description('Base name shared by the three scenario accounts (a unique suffix is appended).')
+param clientAccountBaseName string = 'client-foundry'
 
 @description('Name of the existing APIM service (main.bicep output apimServiceName).')
 param apimServiceName string
@@ -59,21 +36,24 @@ param inferenceApiPath string = 'inference/openai'
 @description('Azure OpenAI API version Foundry appends to inference calls through APIM.')
 param inferenceApiVersion string = '2024-10-21'
 
-@description('Path to the MS Learn MCP passthrough API in APIM (main.bicep mslearnMcpUrl path).')
+@description('Path to the MS Learn MCP passthrough API in APIM.')
 param learnMcpApiPath string = 'learn-mcp/mcp'
 
 @description('Public FQDN of the existing LiteLLM Container App (litellm-foundry.bicep output gatewayFqdn).')
 param litellmFqdn string
 
-@description('LiteLLM master key (the connection credential).')
+@description('LiteLLM master key (the Scenario 3 connection credential).')
 @secure()
 param litellmMasterKey string
 
 @description('Path to the LiteLLM re-exposed MCP endpoint (trailing slash matters).')
 param litellmMcpPath string = 'mcp/'
 
-@description('Host root of the remote A2A agent that serves a spec-compliant agent card at /.well-known/agent-card.json (a2a-agent.bicep public URL).')
+@description('Host root of the remote A2A agent that serves a spec-compliant agent card.')
 param dummyA2aUrl string
+
+@description('Names of the enterprise Foundry accounts (main.bicep) — used to grant the Scenario 1 MI data-plane access for the managed-identity probe.')
+param enterpriseFoundryNames array = []
 
 @description('Model (deployment) name exposed by the gateways.')
 param modelName string = 'gpt-4o-mini'
@@ -81,219 +61,90 @@ param modelName string = 'gpt-4o-mini'
 @description('Underlying model version (metadata only).')
 param modelVersion string = '2024-07-18'
 
-@description('Capacity (K TPM) for the small native driver deployment used to orchestrate the A2A tool.')
+@description('Capacity (K TPM) for each scenario account small native driver deployment.')
 param driverModelCapacity int = 50
 
-// ------------------
-//    VARIABLES
-// ------------------
-
 var resourceSuffix = uniqueString(subscription().id, resourceGroup().id)
-var clientAccountName = '${clientAccountBaseName}-${resourceSuffix}'
+var sc1AccountName = '${clientAccountBaseName}-sc1-${resourceSuffix}'
+var sc2AccountName = '${clientAccountBaseName}-sc2-${resourceSuffix}'
+var sc3AccountName = '${clientAccountBaseName}-sc3-${resourceSuffix}'
 
-// Static model list registered on the model-serving connections (JSON string — Foundry
-// requires complex metadata values to be serialized). "name" is the deployment id.
-var modelsMetadata = '[{"name":"${modelName}","properties":{"model":{"name":"${modelName}","version":"${modelVersion}","format":"OpenAI"}}}]'
-// LiteLLM expects "Authorization: Bearer <master_key>".
-var litellmAuthConfig = '{"type":"api_key","name":"Authorization","format":"Bearer {api_key}"}'
+var enterpriseFoundryIds = [for n in enterpriseFoundryNames: resourceId('Microsoft.CognitiveServices/accounts', n)]
 
-var apimGatewayUrl = '${apimService.properties.gatewayUrl}/${inferenceApiPath}'
-var apimMcpUrl = '${apimService.properties.gatewayUrl}/${learnMcpApiPath}'
-var litellmBaseUrl = 'https://${litellmFqdn}'
-
-// ------------------
-//    EXISTING RESOURCES
-// ------------------
-
-resource apimService 'Microsoft.ApiManagement/service@2024-06-01-preview' existing = {
-  name: apimServiceName
-}
-
-resource apimSubscription 'Microsoft.ApiManagement/service/subscriptions@2024-06-01-preview' existing = {
-  parent: apimService
-  name: apimSubscriptionName
-}
-
-// ------------------
-//    CLIENT FOUNDRY ACCOUNT + PROJECT (no model deployments)
-// ------------------
-
-resource clientAccount 'Microsoft.CognitiveServices/accounts@2025-06-01' = {
-  name: clientAccountName
-  location: location
-  identity: {
-    type: 'SystemAssigned'
-  }
-  sku: {
-    name: 'S0'
-  }
-  kind: 'AIServices'
-  properties: {
-    allowProjectManagement: true
-    customSubDomainName: toLower(clientAccountName)
-    disableLocalAuth: false
-    publicNetworkAccess: 'Enabled'
+// ---------------- Scenario 1 — CUSTOM (APIM), subscription-key custom connection ----------------
+module sc1 'client-foundry-sc1.bicep' = {
+  name: 'client-foundry-sc1'
+  params: {
+    location: location
+    accountName: sc1AccountName
+    apimServiceName: apimServiceName
+    apimSubscriptionName: apimSubscriptionName
+    inferenceApiPath: inferenceApiPath
+    learnMcpApiPath: learnMcpApiPath
+    dummyA2aUrl: dummyA2aUrl
+    enterpriseFoundryIds: enterpriseFoundryIds
+    modelName: modelName
+    modelVersion: modelVersion
+    driverModelCapacity: driverModelCapacity
   }
 }
 
-resource clientProject 'Microsoft.CognitiveServices/accounts/projects@2025-04-01-preview' = {
-  #disable-next-line BCP334
-  name: clientProjectName
-  parent: clientAccount
-  location: location
-  identity: {
-    type: 'SystemAssigned'
-  }
-  properties: {}
-}
-
-// Small native "driver" model. Required for the managed A2A tool (which 500s when the
-// calling agent's model is a gateway connection). NOT used for the model/MCP demos —
-// those deliberately go through the enterprise gateway connections below.
-resource driverModelDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-06-01' = {
-  parent: clientAccount
-  name: modelName
-  sku: {
-    name: 'GlobalStandard'
-    capacity: driverModelCapacity
-  }
-  properties: {
-    model: {
-      format: 'OpenAI'
-      name: modelName
-      version: modelVersion
-    }
+// ---------------- Scenario 2 — AI GATEWAY NATIVE (APIM) ----------------
+module sc2 'client-foundry-sc2.bicep' = {
+  name: 'client-foundry-sc2'
+  params: {
+    location: location
+    accountName: sc2AccountName
+    apimServiceName: apimServiceName
+    apimSubscriptionName: apimSubscriptionName
+    inferenceApiPath: inferenceApiPath
+    inferenceApiVersion: inferenceApiVersion
+    learnMcpApiPath: learnMcpApiPath
+    dummyA2aUrl: dummyA2aUrl
+    enterpriseFoundryIds: enterpriseFoundryIds
+    modelName: modelName
+    modelVersion: modelVersion
+    driverModelCapacity: driverModelCapacity
   }
 }
 
-// ------------------
-//    MODEL CONNECTIONS (3 ways to reach the enterprise models)
-// ------------------
-
-// 1) "AI Gateway native" — Foundry's built-in ApiManagement connection -> APIM pool.
-resource apimModelConnection 'Microsoft.CognitiveServices/accounts/connections@2025-04-01-preview' = {
-  parent: clientAccount
-  name: 'apim-gateway'
-  properties: {
-    category: 'ApiManagement'
-    target: apimGatewayUrl
-    authType: 'ApiKey'
-    credentials: {
-      key: apimSubscription.listSecrets().primaryKey
-    }
-    metadata: {
-      models: modelsMetadata
-      deploymentInPath: 'true'
-      inferenceAPIVersion: inferenceApiVersion
-    }
+// ---------------- Scenario 3 — AI GATEWAY BYO (LiteLLM) ----------------
+module sc3 'client-foundry-sc3.bicep' = {
+  name: 'client-foundry-sc3'
+  params: {
+    location: location
+    accountName: sc3AccountName
+    litellmFqdn: litellmFqdn
+    litellmMasterKey: litellmMasterKey
+    litellmMcpPath: litellmMcpPath
+    dummyA2aUrl: dummyA2aUrl
+    enterpriseFoundryIds: enterpriseFoundryIds
+    modelName: modelName
+    modelVersion: modelVersion
+    driverModelCapacity: driverModelCapacity
   }
 }
 
-// 2) "BYO gateway" — Model Gateway connection -> LiteLLM (load balances the 2 foundries).
-resource litellmModelConnection 'Microsoft.CognitiveServices/accounts/connections@2025-04-01-preview' = {
-  parent: clientAccount
-  name: 'litellm-gateway'
-  properties: {
-    category: 'ModelGateway'
-    target: litellmBaseUrl
-    authType: 'ApiKey'
-    credentials: {
-      key: litellmMasterKey
-    }
-    metadata: {
-      models: modelsMetadata
-      deploymentInPath: 'false'
-      authConfig: litellmAuthConfig
-    }
-  }
-}
+// ---------------- OUTPUTS (per scenario) ----------------
+output sc1AccountName string = sc1.outputs.accountName
+output sc1ProjectEndpoint string = sc1.outputs.projectEndpoint
+output sc1DriverModelDeploymentName string = sc1.outputs.driverModelDeploymentName
+output sc1CustomKeyModelDeploymentName string = sc1.outputs.customKeyModelDeploymentName
+output sc1McpApimConnectionId string = sc1.outputs.mcpApimConnectionId
+output sc1A2aDirectConnectionId string = sc1.outputs.a2aDirectConnectionId
+output sc1AccountPrincipalId string = sc1.outputs.accountPrincipalId
 
-// 3) "Custom, use the gateway URL" — generic CustomKeys connection holding the APIM
-//    inference URL + subscription key. (Whether Foundry will serve a *model* through a
-//    CustomKeys connection is exactly what the client agent script probes — categories
-//    ApiManagement/ModelGateway are the supported model-serving forms.)
-resource apimCustomConnection 'Microsoft.CognitiveServices/accounts/connections@2025-04-01-preview' = {
-  parent: clientAccount
-  name: 'apim-custom'
-  properties: {
-    category: 'CustomKeys'
-    target: apimGatewayUrl
-    authType: 'CustomKeys'
-    credentials: {
-      keys: {
-        'api-key': apimSubscription.listSecrets().primaryKey
-      }
-    }
-    metadata: {}
-  }
-}
+output sc2AccountName string = sc2.outputs.accountName
+output sc2ProjectEndpoint string = sc2.outputs.projectEndpoint
+output sc2DriverModelDeploymentName string = sc2.outputs.driverModelDeploymentName
+output sc2ApimModelDeploymentName string = sc2.outputs.apimModelDeploymentName
+output sc2ApimMiModelDeploymentName string = sc2.outputs.apimMiModelDeploymentName
+output sc2McpApimConnectionId string = sc2.outputs.mcpApimConnectionId
+output sc2A2aDirectConnectionId string = sc2.outputs.a2aDirectConnectionId
 
-// ------------------
-//    TOOL CONNECTIONS (MCP + A2A, behind the gateways)
-// ------------------
-
-// MS Learn MCP behind APIM — the APIM passthrough API (api-key header).
-resource mcpApimConnection 'Microsoft.CognitiveServices/accounts/connections@2025-04-01-preview' = {
-  parent: clientAccount
-  name: 'mslearn-mcp-apim'
-  properties: {
-    category: 'CustomKeys'
-    target: apimMcpUrl
-    authType: 'CustomKeys'
-    credentials: {
-      keys: {
-        'api-key': apimSubscription.listSecrets().primaryKey
-      }
-    }
-    metadata: {}
-  }
-}
-
-// MS Learn MCP behind LiteLLM — LiteLLM's re-exposed /mcp/ (Authorization: Bearer).
-resource mcpLitellmConnection 'Microsoft.CognitiveServices/accounts/connections@2025-04-01-preview' = {
-  parent: clientAccount
-  name: 'mslearn-mcp-litellm'
-  properties: {
-    category: 'CustomKeys'
-    target: '${litellmBaseUrl}/${litellmMcpPath}'
-    authType: 'CustomKeys'
-    credentials: {
-      keys: {
-        Authorization: 'Bearer ${litellmMasterKey}'
-      }
-    }
-    metadata: {}
-  }
-}
-
-// Remote A2A specialist — RemoteA2A connection whose target is the agent's host root
-// (it serves /.well-known/agent-card.json there, so Foundry's managed A2A tool works).
-resource a2aDirectConnection 'Microsoft.CognitiveServices/accounts/connections@2025-04-01-preview' = {
-  parent: clientAccount
-  name: 'dummy-a2a-direct'
-  properties: {
-    category: 'RemoteA2A'
-    target: dummyA2aUrl
-    authType: 'CustomKeys'
-    credentials: {
-      keys: {
-        'x-noop': 'none'
-      }
-    }
-    metadata: {}
-  }
-}
-
-// ------------------
-//    OUTPUTS
-// ------------------
-
-output clientAccountName string = clientAccountName
-output clientProjectEndpoint string = '${clientAccount.properties.endpoint}api/projects/${clientProjectName}'
-output apimModelDeploymentName string = 'apim-gateway/${modelName}'
-output litellmModelDeploymentName string = 'litellm-gateway/${modelName}'
-output customModelDeploymentName string = 'apim-custom/${modelName}'
-output driverModelDeploymentName string = driverModelDeployment.name
-output mcpApimConnectionId string = mcpApimConnection.id
-output mcpLitellmConnectionId string = mcpLitellmConnection.id
-output a2aDirectConnectionId string = a2aDirectConnection.id
+output sc3AccountName string = sc3.outputs.accountName
+output sc3ProjectEndpoint string = sc3.outputs.projectEndpoint
+output sc3DriverModelDeploymentName string = sc3.outputs.driverModelDeploymentName
+output sc3LitellmModelDeploymentName string = sc3.outputs.litellmModelDeploymentName
+output sc3McpLitellmConnectionId string = sc3.outputs.mcpLitellmConnectionId
+output sc3A2aDirectConnectionId string = sc3.outputs.a2aDirectConnectionId
