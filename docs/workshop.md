@@ -155,19 +155,26 @@ python ../src/test/test_load_balancing.py
 
 With 20 small, spaced-out requests you will likely see **all traffic stay on the priority-1 region** — the load is well under the 8K-TPM cap, so there is nothing to fail over from. That confirms routing and managed-identity auth work, but to *see the failover* you need to exhaust priority 1.
 
-<div class="info" data-title="Call it with the OpenAI SDK or an agent framework">
+<div class="info" data-title="How clients call the gateway (OpenAI SDK)">
 
-> The gateway is a normal **Azure OpenAI-compatible** endpoint, so any SDK or agent framework can use it as a model backend:
+> `test_load_balancing.py` / `test_burst.py` use a plain HTTPS client (`requests`) on purpose — so they can read the `x-ms-region` header and *show* which region served each call. Real app code just uses the **OpenAI SDK**, since the gateway is a standard **Azure OpenAI-compatible** endpoint:
 >
 > ```powershell
 > # Official OpenAI SDK (AzureOpenAI client) → APIM
 > python ../src/test/sample_openai_apim.py
 >
-> # OpenAI Agents SDK: an agent with a tool, running on the load-balanced gateway
+> # OpenAI Agents SDK: a client-side agent with a tool, on the load-balanced gateway
 > python ../src/test/agent_apim.py
 > ```
 >
-> [agent_apim.py](src/test/agent_apim.py) runs a real **agent framework** (OpenAI Agents SDK) whose model backend is the APIM AI gateway — proving APIM is a drop-in OpenAI-compatible backend for agents (it load balances + authenticates with managed identity), even though APIM itself is not an agent *runtime*. Validated output: the agent called its `get_exchange_rate` tool and answered *"250 US dollars is approximately 230 euros and 197.50 pounds."*
+> - **OpenAI SDK** — [sample_openai_apim.py](src/test/sample_openai_apim.py) points the `AzureOpenAI` client at `{gateway}/inference` with the `api-key` header.
+> - **OpenAI Agents SDK (client-side agent)** — [agent_apim.py](src/test/agent_apim.py) runs a real agent loop whose model backend is the APIM gateway; it called its `get_exchange_rate` tool and answered *"250 US dollars is approximately 230 euros and 197.50 pounds."* APIM load balances and authenticates with its managed identity — a drop-in OpenAI-compatible backend — even though APIM is **not** an agent *runtime*.
+
+</div>
+
+<div class="tip" data-title="Using Foundry's Agent Service (the Azure AI Agent SDK)?">
+
+> The agent above runs **client-side, in your process**. To use **Foundry Agent Service** instead — where the agent runs *inside Foundry* and Foundry routes its model call **through this same APIM gateway** — you don't write a custom client: you register APIM as an **`ApiManagement` connection** on the Foundry account, then name the agent's model `apim-gateway/gpt-4o-mini`. That connection setting is exactly what **Part 5 — Bring your own gateway *into* Foundry** does (validated end to end).
 
 </div>
 
@@ -259,7 +266,9 @@ Add it to VS Code (Command Palette → **MCP: Add Server** → **HTTP**) using t
 
 Parts 1–2 build a gateway *you* assemble in APIM. Foundry also offers a **built-in, portal-driven AI Gateway** that attaches an APIM v2 instance to a Foundry resource and enforces **per-project token limits and quotas** — no Bicep required.
 
-![Foundry native AI Gateway (APIM v2) enforcing per-project token-per-minute limits for Project A and Project B in front of shared Foundry model deployments.](assets/part3-native.drawio.svg)
+Once a project is gateway-enabled, **all of its requests flow through APIM** — including a **Foundry agent's** model *and* tool calls, not just direct model calls ([AI Gateway architecture](https://learn.microsoft.com/azure/foundry/configuration/enable-ai-api-management-gateway-portal#ai-gateway-architecture)). It is the same "route the model call through the gateway" idea as the bring-your-own-gateway connection in **Part 5** — but **native and transparent**: Foundry wires the routing for you, so there is no connection to register and no change to the model name.
+
+![In a gateway-enabled project, a client app and a Foundry agent both send requests through the native AI Gateway (APIM v2, per-project token limits); APIM forwards them to the project's Foundry model deployments and tools.](assets/part3-native.drawio.svg)
 
 ## Enable it
 
