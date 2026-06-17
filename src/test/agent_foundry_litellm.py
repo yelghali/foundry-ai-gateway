@@ -28,6 +28,10 @@ from azure.ai.projects.models import PromptAgentDefinition
 
 PROJECT_ENDPOINT = os.environ["FOUNDRY_PROJECT_ENDPOINT"]
 MODEL_DEPLOYMENT = os.environ["FOUNDRY_MODEL_DEPLOYMENT_NAME"]  # "<connection>/<model>"
+# Set KEEP_AGENT=1 to leave the created agent (and its conversation) in the project
+# after the run, so it stays visible in the Foundry portal (Agents list + its thread).
+# Default (unset) deletes both, as before.
+KEEP_AGENT = os.environ.get("KEEP_AGENT", "").strip().lower() in ("1", "true", "yes")
 
 
 def main() -> None:
@@ -55,10 +59,15 @@ def main() -> None:
         print("\nAgent reply (served through the LiteLLM gateway):")
         print(response.output_text)
     finally:
-        # 3) Clean up the conversation and agent version.
-        openai_client.conversations.delete(conversation.id)
-        project.agents.delete_version(agent_name=agent.name, agent_version=agent.version)
-        print("\nCleaned up conversation + agent version.")
+        # 3) Clean up the conversation and agent version, unless KEEP_AGENT is set so
+        #    you can inspect the agent + its run in the Foundry portal.
+        if KEEP_AGENT:
+            print(f"\nKEEP_AGENT set — left agent '{agent.name}' (v{agent.version}) and "
+                  f"conversation '{conversation.id}' in the project for portal viewing.")
+        else:
+            openai_client.conversations.delete(conversation.id)
+            project.agents.delete_version(agent_name=agent.name, agent_version=agent.version)
+            print("\nCleaned up conversation + agent version.")
 
 
 if __name__ == "__main__":

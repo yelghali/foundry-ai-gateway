@@ -610,6 +610,19 @@ python ../src/test/agent_foundry_litellm.py
 
 [agent_foundry_litellm.py](src/test/agent_foundry_litellm.py) creates a **prompt agent** whose `model` is `litellm-gateway/gpt-4o-mini`, runs one turn, and cleans up. Foundry Agent Service resolves the connection, calls `POST {gateway}/chat/completions`, and LiteLLM forwards to a Foundry region with its managed identity.
 
+<div class="note" data-title="Keep the agent so you can see it in the portal">
+
+> By default each script **deletes** its agent + conversation on exit (good hygiene for a demo). To make the agent **persist and show up in the portal** (Build > Agents, plus its thread/run), set **`KEEP_AGENT=1`** before running any of the `agent_foundry_*.py` scripts:
+>
+> ```powershell
+> $env:KEEP_AGENT = "1"
+> python ../src/test/agent_foundry_litellm.py
+> ```
+>
+> The script then prints the persisted agent name + conversation id instead of cleaning up.
+
+</div>
+
 <div class="tip" data-title="Real result (validated)">
 
 > The deployed gateway answered directly — `GET /v1/models` → **200** (lists `gpt-4o-mini`), `POST /v1/chat/completions` → **200**. Then the Foundry agent ran end to end and replied **through the gateway**:
@@ -664,9 +677,47 @@ python ../src/test/agent_foundry_mcp_a2a_litellm.py
 >
 > - ✅ **Non-TLS URLs — fixed.** LiteLLM's card used to advertise `http://` endpoints (uvicorn ignored `X-Forwarded-Proto` behind the Container Apps TLS proxy). Setting **`FORWARDED_ALLOW_IPS=*`** on the LiteLLM container (now baked into [infra/litellm-foundry.bicep](infra/litellm-foundry.bicep)) makes it advertise **https** URLs.
 > - ✅ **Agent chunked-body bug — fixed.** Foundry's .NET A2A client sends the JSON-RPC body with `Transfer-Encoding: chunked`; the demo agent read only `Content-Length` and saw an empty body (→ `MethodNotFound`). [dummy_agent.py](src/a2a/dummy_agent.py) now de-chunks, speaks HTTP/1.1, and replies with an A2A **Message**.
-> - ⛔ **Discovery *and* routing follow the connection target, not the card.** Empirically, Foundry resolves the card at the **host root of the project connection's `target`** (`{host}/.well-known/agent-card.json`) and sends `message/send` **directly to that same server** — it ignores the tool `base_url` path, `agent_card_path`, *and* the card's advertised `url`. LiteLLM's A2A gateway is **path-scoped** (`/a2a/{agent}/...`, no host-root card or host-root message route), so it **cannot sit in front of** the agent for the managed tool. Pointing the connection straight at the agent makes Foundry discover + call it — but that **bypasses LiteLLM**, and the managed tool then returns an opaque Foundry-side **`500 server_error`** (preview-stage).
+> - ⛔ **Card discovery is anchored to the host-root well-known URI.** Foundry resolves the agent card at the **host root** of the A2A endpoint (`{scheme}://{host}/.well-known/agent-card.json`) — the [RFC 8615](https://www.rfc-editor.org/rfc/rfc8615) well-known convention the [A2A spec](https://a2a-protocol.org/latest/) mandates. LiteLLM's A2A gateway is **path-scoped**: it serves the card *only* under `/a2a/{agent}/.well-known/agent-card.json` and has **no host-root card route** (verified: host-root → `404`, path → `200`). So Foundry's card fetch fails before any message is ever sent.
 >
-> Net: A2A **through LiteLLM** is not achievable with Foundry's **managed** A2A tool, but it **works for client-side orchestrators** — that is exactly **Part 2b** ([agent_a2a_litellm.py](src/test/agent_a2a_litellm.py)), which calls LiteLLM's documented `/a2a/{agent}` JSON-RPC path directly instead of relying on host-root card discovery.
+> **Why "just put the LiteLLM URL in the connection" doesn't rescue it.** Microsoft's docs define a dedicated **`RemoteA2A`** connection category whose `target` *is* the A2A endpoint, and state that `base_url` is *"optional, only needed for non-`RemoteA2A` connections"* ([Connect to an A2A agent endpoint](https://learn.microsoft.com/azure/foundry/agents/how-to/tools/agent-to-agent#prerequisites)). We tested exactly that — a `RemoteA2A` connection with `target = https://<litellm>/a2a/dummy-specialist` (the full path) and **no** `base_url` — and Foundry still failed at discovery:
+>
+> ```text
+> 400 invalid_request_error / tool_user_error
+> Failed to fetch agent card: Response status code does not indicate success: 404 (Not Found).
+> ```
+>
+> Foundry does **not** append `/.well-known/agent-card.json` to the target's sub-path; it anchors to the host root, which LiteLLM doesn't serve. The same host-root requirement applies to the two other "register a URL" routes in the docs: the [Foundry Control Plane custom-agent registration](https://learn.microsoft.com/azure/foundry/control-plane/register-custom-agent) ("Foundry … discovers your agent card at `/.well-known/agent-card.json`") and self-hosting ("Serve an agent card at `/.well-known/agent-card.json`"). **There is no connection-less form** of the managed `A2APreviewTool` — the REST schema makes `project_connection_id` the carrier ([REST API reference](https://learn.microsoft.com/rest/api/microsoft-foundry/aiproject#components)).
+>
+> Net: Foundry's **managed** A2A tool can only consume an endpoint whose **host root** serves a spec-compliant card. LiteLLM's path-scoped A2A gateway can't satisfy that, so it can't be fronted for the managed tool — regardless of connection category or whether you paste the full LiteLLM URL. To make it work you'd have to expose the card at a **host root** (e.g. a per-agent hostname or an APIM/reverse-proxy rewrite that maps `/.well-known/agent-card.json` → LiteLLM's path) and have that card advertise a routable `url`. A2A **through LiteLLM** *does* work for **client-side orchestrators** — exactly **Part 2b** ([agent_a2a_litellm.py](src/test/agent_a2a_litellm.py)), where the client calls LiteLLM's `/a2a/{agent}` JSON-RPC path directly and host-root discovery never enters the picture.
+
+</div>
+
+<div class="tip" data-title="Real result (validated) — native A2A *does* work, direct to the agent">
+
+> The same managed `A2APreviewTool` that LiteLLM can't satisfy works perfectly when the A2A target serves its card at its **own host root** — which is exactly what our dummy agent does (`GET {dummy-host}/.well-known/agent-card.json` → **200**, with a `url` pointing back at the same host). [agent_foundry_native.py](src/test/agent_foundry_native.py) builds one Foundry prompt agent that does **all three call types with no gateway in the path**: a **native** model deployment (`gpt-4o-mini`), the **public MS Learn MCP** server called directly, and the **dummy A2A agent** called directly through a **`RemoteA2A`** connection whose `target` is the agent's host root.
+>
+> ```text
+> Created agent 'native-mcp-a2a-agent' (version 1) -> model 'gpt-4o-mini' (native)
+> Tools (all direct, no gateway): MCPTool, A2APreviewTool
+>
+> Agent reply (native model + native tools, no gateway):
+> ### What is Azure API Management?
+> Azure API Management is a hybrid, multicloud management platform for APIs ...
+> (https://learn.microsoft.com/azure/api-management/api-management-key-concepts)
+>
+> ### Should I put a gateway in front of my agents?
+> Yes, always place an AI gateway in front of your models and agents ...
+> ```
+>
+> The first paragraph is the **MCP** (MS Learn) answer; the second is the **A2A** specialist's reply — model + tool + agent, all in one native turn. This pins the blocker precisely: Foundry's managed A2A tool is **fine**; the only thing LiteLLM can't provide is a **host-root** card. Run it with:
+>
+> ```powershell
+> $env:FOUNDRY_MODEL_DEPLOYMENT_NAME = "gpt-4o-mini"   # a native deployment
+> $env:FOUNDRY_A2A_CONNECTION_ID = "/subscriptions/.../connections/dummy-a2a-direct"
+> $env:A2A_BASE_URL = "https://<a2a-agent-host>"        # host root that serves the card
+> $env:KEEP_AGENT = "1"
+> python ../src/test/agent_foundry_native.py
+> ```
 
 </div>
 
@@ -736,6 +787,30 @@ Both connections expose models the same way (`<connection>/<model>`) and support
 
 ---
 
+# Where to see all this in the Foundry portal
+
+Everything this lab creates is visible in the portal — here is where each piece shows up, and where to watch a **model**, **tool (MCP)**, and **agent (A2A)** call actually happen.
+
+| What | Where in the portal |
+| --- | --- |
+| **Your gateway connection** (LiteLLM `ModelGateway` / APIM `ApiManagement` / `RemoteA2A` / Custom-keys) | **Project → Connected resources** — lists every connection with an **Active/Inactive** status. The LiteLLM model gateway also appears under **Operate → Admin console → All projects → (parent resource) → Admin-connected models**, where its model deployments (e.g. `litellm-gateway/gpt-4o-mini`) are listed. |
+| **The agents you created** | **Build → Agents** — each `agent_foundry_*.py` script that ran with **`KEEP_AGENT=1`** appears here (`litellm-gateway-agent`, `apim-gateway-agent`, `litellm-mcp-a2a-agent`, `native-mcp-a2a-agent`). Without `KEEP_AGENT` the agent is deleted on exit and won't show. |
+| **A run's model + tool + A2A calls** | Open the agent → its **thread / conversation**, or use **Tracing** (Observability) — each turn shows the **model** call and every **tool** invocation (the MCP `mslearn` call and the A2A `dummy_specialist` call as separate tool steps). |
+| **Token-limit / governance** (Part 3, native gateway) | **Operate → Admin console** — per-project token limits and the attached APIM. |
+
+### Which agent demonstrates which call — native vs. gateway
+
+| Script (agent name) | Model | Tool (MCP) | Agent (A2A) | Path |
+| --- | --- | --- | --- | --- |
+| [agent_foundry_native.py](src/test/agent_foundry_native.py) (`native-mcp-a2a-agent`) | ✅ `gpt-4o-mini` | ✅ MS Learn (direct) | ✅ dummy agent (direct) | **Native — no gateway** |
+| [agent_foundry_litellm.py](src/test/agent_foundry_litellm.py) (`litellm-gateway-agent`) | ✅ via LiteLLM | — | — | LiteLLM `ModelGateway` |
+| [agent_foundry_mcp_a2a_litellm.py](src/test/agent_foundry_mcp_a2a_litellm.py) (`litellm-mcp-a2a-agent`) | ✅ via LiteLLM | ✅ MS Learn via LiteLLM | ⛔ blocked (host-root card) | LiteLLM `ModelGateway` + Custom-keys |
+| [agent_foundry_apim.py](src/test/agent_foundry_apim.py) (`apim-gateway-agent`) | ✅ via APIM | — | — | APIM `ApiManagement` |
+
+> **The honest split:** *native* (direct, no gateway) gets you **model + MCP + A2A** all working. *Through LiteLLM* you get **model + MCP**; A2A is blocked only because LiteLLM serves the agent card under a path instead of the host root. *Through APIM* you get the **model** (and MCP/A2A via APIM passthrough APIs for client-orchestrated callers — Parts 2 / 2b).
+
+---
+
 # Summary — model, tool, agent
 
 Every pattern in this lab answers the same three questions: can my gateway let an app (or a Foundry agent) **call a model**, **call a tool** (MCP), and **call another agent** (A2A) — through *one* control plane? Here is what each scenario delivers. Rows marked ✅ are **built and validated end to end** in this lab; 🔵 rows are **documented preview** capabilities (portal/control-plane-driven, not deployed here).
@@ -747,7 +822,8 @@ Every pattern in this lab answers the same three questions: can my gateway let a
 | **APIM — A2A passthrough** *(Part 2b)* | ✅ same inference API | ✅ (as Part 2) | ✅ **dummy A2A agent** via the `dummy-a2a` passthrough API |
 | **Foundry native AI Gateway** *(Part 3)* | ✅ **per-project token limits** (portal-attached APIM v2) | 🔵 **MCP tools auto-routed through APIM** *(preview, portal)* | 🔵 **A2A agent registration & governance** *(preview)* |
 | **LiteLLM — bring your own** *(Parts 4–5)* | ✅ OpenAI-compatible, Entra ID, multi-region | ✅ `mcp_servers` re-exposed at `/mcp` | ✅ **A2A Agent Gateway** at `/a2a/{agent}` *(needs the Postgres backend)* |
-| **Your gateway *into* Foundry** *(Part 5)* | ✅ Foundry Agent Service runs its **model** through APIM **or** LiteLLM | ✅ Foundry agent calls **MS Learn MCP via LiteLLM** *(auth via a project connection)* | ⚠️ A2A tool definable; `http://`-card + agent bugs **fixed**, but Foundry's **managed** A2A tool discovers/routes via the **connection target host** (not the card url), so it can't be fronted by LiteLLM's path-scoped A2A gateway |
+| **Your gateway *into* Foundry** *(Part 5)* | ✅ Foundry Agent Service runs its **model** through APIM **or** LiteLLM | ✅ Foundry agent calls **MS Learn MCP via LiteLLM** *(auth via a project connection)* | ⚠️ A2A tool definable; `http://`-card + agent bugs **fixed**, but Foundry anchors A2A card discovery at the **host-root well-known URI** (confirmed with a `RemoteA2A` connection → `404`), which LiteLLM's path-scoped A2A gateway can't serve |
+| **Native Foundry agent — no gateway** *(Part 5)* | ✅ native deployment (`gpt-4o-mini`) | ✅ **MS Learn MCP** called directly | ✅ **dummy A2A agent** called directly (host-root card) — `native-mcp-a2a-agent` runs all three in one turn |
 
 <div class="tip" data-title="The big picture">
 
@@ -755,7 +831,8 @@ Every pattern in this lab answers the same three questions: can my gateway let a
 >
 > - **APIM** does all three *today* with plain passthrough APIs — proven in Parts 1, 2, and 2b on a single subscription key.
 > - **LiteLLM** matches it once it has a database (the **Postgres sidecar**) — model + MCP + A2A on one master key.
-> - **Foundry's native gateway** governs all three too (**model** token limits today; **MCP tools** auto-routed through APIM and **A2A agent** registration in preview). And **into Foundry** (Part 5), a Foundry agent runs its **model** *and* a **MS Learn MCP tool** through LiteLLM on one connection — only Foundry-hosted **A2A → LiteLLM** is blocked: Foundry's managed A2A tool discovers + routes via the **connection target host**, which LiteLLM's path-scoped A2A gateway can't satisfy (A2A through LiteLLM still works for **client-orchestrated** agents — Part 2b).
+> - **Foundry's native gateway** governs all three too (**model** token limits today; **MCP tools** auto-routed through APIM and **A2A agent** registration in preview). And **into Foundry** (Part 5), a Foundry agent runs its **model** *and* a **MS Learn MCP tool** through LiteLLM on one connection — only Foundry-hosted **A2A → LiteLLM** is blocked: Foundry's managed A2A tool anchors card discovery at the **host-root well-known URI** (`/.well-known/agent-card.json`), which LiteLLM's path-scoped A2A gateway can't serve at a host root (A2A through LiteLLM still works for **client-orchestrated** agents — Part 2b).
+> - **A native Foundry agent** (`native-mcp-a2a-agent`, [agent_foundry_native.py](src/test/agent_foundry_native.py)) closes the loop: with **no gateway** in the path it does **model + MCP + A2A** in a single turn — proving the A2A block is purely LiteLLM's path-scoped card, not the managed A2A tool itself.
 >
 > Legend: ✅ = built & validated in this lab · 🔵 = documented preview (not deployed here) · ⚠️ = attempted, blocked by a gateway-side limitation · — = not part of that scenario.
 

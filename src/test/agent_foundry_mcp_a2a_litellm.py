@@ -16,24 +16,30 @@ A2A finding (Foundry managed A2A tool vs. LiteLLM)
 -------------------------------------------------
 The MCP leg is validated end to end through LiteLLM. The A2A leg is *not*
 governable through LiteLLM with Foundry's **managed** A2APreviewTool, for a
-structural reason discovered empirically:
+structural reason confirmed empirically:
 
-  * Foundry resolves the agent card at the **host root of the project
-    connection's target** (``{scheme}://{host}/.well-known/agent-card.json``) and
-    sends ``message/send`` **directly to that same server** — it ignores the
-    tool ``base_url`` path, the ``agent_card_path``, and the card's advertised
-    ``url``. So LiteLLM's A2A gateway (path-scoped at ``/a2a/{agent}/...`` with
-    no host-root card or host-root message route) cannot sit in front of the
-    agent for the managed tool. Pointing the connection straight at the agent
-    makes Foundry discover + call it, but that bypasses LiteLLM.
+  * Foundry anchors agent-card discovery at the **host-root well-known URI**
+    (``{scheme}://{host}/.well-known/agent-card.json`` — the RFC 8615 / A2A-spec
+    convention). LiteLLM's A2A gateway is path-scoped: it serves the card only
+    under ``/a2a/{agent}/.well-known/agent-card.json`` and has no host-root card
+    route (verified: host-root -> 404, path -> 200). So Foundry's card fetch
+    404s before any message is sent.
+  * The A2A tool always needs a ``project_connection_id`` (no connection-less
+    form). Microsoft's docs define a dedicated ``RemoteA2A`` connection category
+    whose ``target`` *is* the endpoint (``base_url`` is "only needed for
+    non-RemoteA2A connections"). Tested with a ``RemoteA2A`` connection whose
+    ``target`` is the full ``/a2a/{agent}`` path and no ``base_url`` -> Foundry
+    still failed: ``400 ... Failed to fetch agent card: ... 404 (Not Found)``.
+    Foundry does not append ``/.well-known/...`` to the target's sub-path; it
+    anchors to the host root, which LiteLLM doesn't serve.
   * Two prerequisites that *were* fixed along the way: LiteLLM now advertises
     **https** card URLs (``FORWARDED_ALLOW_IPS=*`` on the container), and the
     demo A2A agent now reads **chunked** request bodies (Foundry's .NET A2A
     client sends them) and replies with an A2A **Message**.
-  * Even pointing Foundry directly at the agent, the managed A2A tool currently
-    returns an opaque Foundry-side ``500 server_error`` after the agent answers
-    — a preview-stage limitation.
 
+To front LiteLLM for the managed tool you'd have to expose the card at a host
+*root* (per-agent hostname, or an APIM/reverse-proxy rewrite mapping
+``/.well-known/agent-card.json`` -> LiteLLM's path) and advertise a routable url.
 A2A *through LiteLLM* is validated for **client-orchestrated** agents instead
 (see agent_a2a_litellm.py), where the client controls the endpoint URL.
 
@@ -102,6 +108,9 @@ A2A_CONNECTION_ID = os.environ.get("FOUNDRY_A2A_CONNECTION_ID")
 # OWN host root and let that card advertise the LiteLLM endpoint as its url — so discovery
 # is direct but every A2A *message* still flows through the LiteLLM gateway.
 A2A_DISCOVERY_BASE_URL = os.environ.get("FOUNDRY_A2A_BASE_URL", LITELLM_BASE_URL)
+# Set KEEP_AGENT=1 to leave the created agent (and its conversation) in the project
+# after the run, so it stays visible in the Foundry portal (Agents list + its thread).
+KEEP_AGENT = os.environ.get("KEEP_AGENT", "").strip().lower() in ("1", "true", "yes")
 
 
 def build_tools() -> list:
@@ -193,10 +202,15 @@ def main() -> None:
         print("\nAgent reply (model + tools served through the LiteLLM gateway):")
         print(response.output_text)
     finally:
-        # 3) Clean up the conversation and agent version.
-        openai_client.conversations.delete(conversation.id)
-        project.agents.delete_version(agent_name=agent.name, agent_version=agent.version)
-        print("\nCleaned up conversation + agent version.")
+        # 3) Clean up the conversation and agent version, unless KEEP_AGENT is set so
+        #    you can inspect the agent + its run in the Foundry portal.
+        if KEEP_AGENT:
+            print(f"\nKEEP_AGENT set — left agent '{agent.name}' (v{agent.version}) and "
+                  f"conversation '{conversation.id}' in the project for portal viewing.")
+        else:
+            openai_client.conversations.delete(conversation.id)
+            project.agents.delete_version(agent_name=agent.name, agent_version=agent.version)
+            print("\nCleaned up conversation + agent version.")
 
 
 if __name__ == "__main__":
