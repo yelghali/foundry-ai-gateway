@@ -12,6 +12,7 @@ infra/bicepbuild.txt
 infra/deploy-llm.txt
 infra/whoami.txt
 infra/dstate*.txt
+infra/*_out.txt
 
 # Secrets / env
 **/.env
@@ -22,6 +23,7 @@ src/litellm/proxy.*
 src/litellm/_diag.py
 src/test/agentout*.txt
 src/test/out*.txt
+src/test/*_out.txt
 
 # Python
 __pycache__/

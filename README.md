@@ -4,6 +4,7 @@ A hands-on **MOAW lab** showing five complementary ways to put an *AI gateway* i
 
 1. **Azure API Management (APIM) as an AI gateway** — load balance one model across **two Foundry regions** with a backend pool, priority/weight routing, circuit breakers, and transparent 429 retries.
 2. **MCP governance** — expose and govern the **Microsoft Learn MCP server** through APIM.
+2b. **A2A governance** — expose and govern a **dummy A2A (Agent2Agent) agent** through APIM so one agent can call another *through* your gateway.
 3. **Foundry native AI Gateway** — the built-in portal experience that attaches an APIM **v2** instance to a Foundry resource for per-project token limits.
 4. **Bring your own gateway** — a proof-of-concept with the open-source **LiteLLM** proxy in front of Foundry.
 5. **Bring your own gateway *into* Foundry** — register your gateway with **Foundry Agent Service** as a connection (your APIM as an `ApiManagement` connection, or LiteLLM as a `ModelGateway` connection) so agents run their models through it.
@@ -26,6 +27,8 @@ foundry-ai-gateway/
 │   ├── deploy-litellm-foundry.ps1   # Part 5: deploy the LiteLLM (ModelGateway) variant
 │   ├── apim-foundry.bicep           # Part 5: APIM as a Foundry ApiManagement connection
 │   ├── deploy-apim-foundry.ps1      # Part 5: deploy the APIM-connection variant
+│   ├── a2a-agent.bicep              # A2A: dummy A2A agent on Container Apps + APIM passthrough API
+│   ├── deploy-a2a.ps1               # A2A: deploy the dummy agent + APIM passthrough
 │   └── cleanup.ps1          # tear down
 └── src/
     ├── test/
@@ -35,11 +38,13 @@ foundry-ai-gateway/
     │   ├── agent_apim.py            # APIM: OpenAI Agents SDK agent + tool
     │   ├── agent_maf_apim.py        # APIM: Microsoft Agent Framework agent + tool
     │   ├── agent_mcp_apim.py        # APIM: agent + local tool + remote MS Learn MCP (proxied by APIM)
+    │   ├── agent_a2a_apim.py        # APIM: agent + local tool + remote A2A specialist agent (proxied by APIM)
     │   ├── test_litellm_tools.py    # LiteLLM: models + tools (function calling)
     │   ├── sample_openai_litellm.py # LiteLLM: OpenAI SDK (OpenAI) client
     │   ├── agent_litellm.py         # LiteLLM: OpenAI Agents SDK agent + tool
     │   ├── agent_maf_litellm.py     # LiteLLM: Microsoft Agent Framework agent + tool
     │   ├── agent_mcp_litellm.py     # LiteLLM: agent + local tool + remote MS Learn MCP (proxied by LiteLLM)
+    │   ├── agent_a2a_litellm.py     # LiteLLM: agent + local tool + remote A2A specialist agent (LiteLLM governs model)
     │   ├── agent_foundry_litellm.py # Part 5: Foundry agent via the LiteLLM (ModelGateway) connection
     │   ├── agent_foundry_apim.py    # Part 5: Foundry agent via the APIM connection
     │   └── requirements.txt
@@ -48,6 +53,8 @@ foundry-ai-gateway/
         ├── config.foundry.yaml  # LiteLLM proxy config — Part 5 (managed identity, auto-refresh; mcp_servers block)
         ├── docker-compose.yml
         └── .env.example
+    └── a2a/
+        └── dummy_agent.py       # A2A: stdlib-only dummy A2A agent (agent card + JSON-RPC message/send)
 ```
 
 ## Quickstart
@@ -74,6 +81,13 @@ python ../src/test/agent_apim.py              # OpenAI Agents SDK agent + tool -
 python ../src/test/agent_maf_apim.py          # Microsoft Agent Framework agent + tool -> APIM
 python ../src/test/agent_mcp_apim.py          # agent + local tool + remote MS Learn MCP, both THROUGH APIM
 
+# 3b. (A2A) Govern a dummy A2A agent behind APIM
+cd ../infra; ./deploy-a2a.ps1                  # dummy A2A agent on Container Apps + APIM passthrough
+$env:A2A_URL_APIM = "<apimResourceGatewayURL>/dummy-a2a"
+python ../src/test/agent_a2a_apim.py          # agent + local tool + remote A2A agent, both THROUGH APIM
+$env:A2A_URL_DIRECT = "<a2aAgentDirectUrl>"
+python ../src/test/agent_a2a_litellm.py        # LiteLLM governs the model; A2A call goes direct (see note)
+
 # 4. (Part 5) Bring your own gateway INTO Foundry. Two connection types:
 #    (a) APIM as an "ApiManagement" connection (reuses Parts 1-3 — no container)
 ./deploy-apim-foundry.ps1                       # creates the ApiManagement connection
@@ -94,6 +108,7 @@ python ../src/test/agent_foundry_litellm.py    # Foundry agent runs its model TH
 > - **OpenAI SDK + agent** — `sample_openai_apim.py` (official SDK) and `agent_apim.py` (OpenAI Agents SDK with a tool) both ran on the gateway; the agent answered *"250 US dollars is approximately 230 euros and 197.50 pounds"* after calling its tool.
 > - **LiteLLM BYO (Entra ID auth)** — `test_litellm_tools.py` returned a chat reply **and** a `get_current_weather` tool call; `agent_litellm.py` ran the same agent on LiteLLM — proving **models + tools + agents**.
 > - **Remote MCP through the gateway** — `agent_mcp_apim.py` and `agent_mcp_litellm.py` each run one agent that combines a **local** Python tool with the **remote Microsoft Learn MCP** server reached *through the gateway* (APIM `learn-mcp` passthrough API; LiteLLM `mcp_servers`). Both answered *"Azure API Management is … (source: learn.microsoft.com)"* from MS Learn **and** converted *100 USD ≈ 92 EUR* with the local tool — proving the **same proxy + key govern both model and MCP-tool traffic**.
+> - **Remote A2A agent through the gateway** — `agent_a2a_apim.py` runs an orchestrator agent that combines a **local** Python tool with a **remote A2A (Agent2Agent) "specialist" agent** reached *through APIM* (`dummy-a2a` passthrough API → a stdlib A2A agent on Container Apps). It quoted the specialist's advice **and** converted *100 USD ≈ 92 EUR* — proving the **same proxy + key govern model and agent-to-agent traffic**. `agent_a2a_litellm.py` ran the same agent with **LiteLLM governing the model** (the A2A call goes direct — LiteLLM's A2A *Agent Gateway* needs a DB-backed registry not enabled in this file-config POC).
 > - **LiteLLM *into* Foundry (Part 5)** — LiteLLM deployed to **Azure Container Apps** (managed identity, Entra ID auto-refresh) and registered as a Foundry **Model Gateway connection**. `GET /v1/models` → 200, `POST /v1/chat/completions` → 200, and a **Foundry Agent Service** prompt agent (`litellm-gateway/gpt-4o-mini`) replied end to end *through the gateway* — proving **Foundry Agent Service → connection → LiteLLM → Foundry**.
 > - **APIM *into* Foundry (Part 5)** — the existing APIM instance registered as a Foundry **`ApiManagement`** connection (`provisioningState: Succeeded`, `target: .../inference/openai`, `deploymentInPath: true`). A **Foundry Agent Service** prompt agent (`apim-gateway/gpt-4o-mini`) replied end to end *through APIM* — proving **Foundry Agent Service → ApiManagement connection → APIM → Foundry (backend pool)**.
 
@@ -107,6 +122,7 @@ The three gateway approaches differ most in **what they can govern**. The matrix
 | **Models** — auth to Foundry | ✅ APIM **managed identity** (no keys in policy) | ✅ Managed by the platform | ✅ **Entra ID** bearer token (no keys); API key also supported if local auth is on |
 | **Tools** — function calling pass-through | ✅ Passed through to the model | ✅ Passed through to the model | ✅ `tools`/`tool_choice` pass-through; returns `tool_calls` |
 | **Tools** — govern external MCP servers | ✅ Expose/govern MCP (e.g. Learn MCP) with policies — `learn-mcp` passthrough API | ✅ MCP/A2A tool governance via control plane | ⚠️ Acts as an **MCP gateway** (`mcp_servers` aggregates/re-exposes MCP at `/mcp/`) — proxy + key auth, not full policy governance |
+| **Agents** — govern A2A (agent-to-agent) traffic | ✅ Expose/govern an A2A agent with policies — `dummy-a2a` passthrough API | ✅ A2A tool/agent governance via control plane | ⚠️ Has a DB-backed **Agent Gateway (A2A)** (`/a2a/{agent}`) — not enabled in this file-config POC (no database) |
 | **Tools** — execution host | ❌ Client executes the tool | ❌ Client/agent executes the tool | ❌ Client executes the tool |
 | **Agents** — hosted agent runtime | ❌ Not an agent runtime (gateway only) | ✅ Integrates with **Foundry Agent Service** + custom agent registration | ❌ Not an agent runtime |
 | **Agents** — as a model backend for frameworks | ✅ OpenAI-compatible endpoint (OpenAI Agents SDK + Microsoft Agent Framework) | ✅ Via Foundry projects | ✅ OpenAI-compatible endpoint (OpenAI Agents SDK + Microsoft Agent Framework; Semantic Kernel/LangChain) |

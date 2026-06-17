@@ -16,6 +16,7 @@ sections_title:
   - Prerequisites
   - Part 1 — Load balance Foundry models with APIM
   - Part 2 — Govern the Microsoft Learn MCP server
+  - Part 2b — Govern an A2A agent
   - Part 3 — Foundry native AI Gateway
   - Part 4 — Bring your own gateway (LiteLLM)
   - Part 5 — Bring your own gateway INTO Foundry
@@ -29,7 +30,7 @@ As organizations adopt generative AI, a single model endpoint quickly becomes a 
 This workshop walks through **five complementary patterns** for building an AI gateway in front of [Azure AI Foundry](https://learn.microsoft.com/azure/ai-foundry/):
 
 1. **APIM as an AI gateway** — load balance a model across **two Foundry regions** using an Azure API Management backend pool with priority/weight routing and automatic 429 failover.
-2. **MCP governance** — expose and govern the **Microsoft Learn MCP server** through APIM so agents consume tools through your gateway.
+2. **MCP governance** — expose and govern the **Microsoft Learn MCP server** through APIM so agents consume tools through your gateway. The same passthrough pattern also governs an **A2A (Agent2Agent) agent**, so one agent calls another *through* your gateway.
 3. **Foundry's native AI Gateway** — the built-in portal experience that attaches an APIM v2 instance to a Foundry resource for per-project token limits.
 4. **Bring your own gateway** — a proof-of-concept deploying the open-source **LiteLLM** proxy in front of Foundry, and what it can (and cannot) do.
 5. **Bring your own gateway *into* Foundry** — register a gateway with **Foundry Agent Service** as a connection (your **APIM** as an `ApiManagement` connection, *or* **LiteLLM** as a `ModelGateway` connection), so Foundry agents run their models through your gateway.
@@ -75,6 +76,8 @@ foundry-ai-gateway/
 │   ├── deploy-litellm-foundry.ps1   # Part 5: deploy the LiteLLM (ModelGateway) variant
 │   ├── apim-foundry.bicep           # Part 5: APIM as a Foundry ApiManagement connection
 │   ├── deploy-apim-foundry.ps1      # Part 5: deploy the APIM-connection variant
+│   ├── a2a-agent.bicep              # Part 2b: dummy A2A agent on Container Apps + APIM passthrough
+│   ├── deploy-a2a.ps1               # Part 2b: deploy the dummy agent + passthrough
 │   └── cleanup.ps1          # tear down
 └── src/
     ├── test/                # Python samples & tests
@@ -84,13 +87,16 @@ foundry-ai-gateway/
     │   ├── agent_apim.py            # APIM: OpenAI Agents SDK agent + tool
     │   ├── agent_maf_apim.py        # APIM: Microsoft Agent Framework agent + tool
     │   ├── agent_mcp_apim.py        # APIM: agent + local tool + remote MS Learn MCP (proxied by APIM)
+    │   ├── agent_a2a_apim.py        # APIM: agent + local tool + remote A2A agent (proxied by APIM)
     │   ├── test_litellm_tools.py    # LiteLLM: models + tools (function calling)
     │   ├── sample_openai_litellm.py # LiteLLM: OpenAI SDK (OpenAI) client
     │   ├── agent_litellm.py         # LiteLLM: OpenAI Agents SDK agent + tool
     │   ├── agent_maf_litellm.py     # LiteLLM: Microsoft Agent Framework agent + tool
     │   ├── agent_mcp_litellm.py     # LiteLLM: agent + local tool + remote MS Learn MCP (proxied by LiteLLM)
+    │   ├── agent_a2a_litellm.py     # LiteLLM: agent + local tool + remote A2A agent (LiteLLM governs model)
     │   ├── agent_foundry_litellm.py # Part 5: Foundry agent via the LiteLLM (ModelGateway) connection
     │   └── agent_foundry_apim.py    # Part 5: Foundry agent via the APIM connection
+    ├── a2a/                 # Part 2b: stdlib-only dummy A2A agent (dummy_agent.py)
     └── litellm/             # BYO gateway: config.yaml (Part 4), config.foundry.yaml (Part 5),
                              #   docker-compose.yml, .env.example
 ```
@@ -290,6 +296,56 @@ https://<apim-name>.azure-api.net/learn-mcp/mcp
 > The agent asked MS Learn *what Azure API Management is* **and** converted *100 USD → EUR*, answering: *"Azure API Management is a hybrid, multicloud management platform for APIs … (Source: learn.microsoft.com) … 100 USD is approximately 92 EUR."* The model (inference) call **and** the MCP tool call both flowed through APIM on one key — one gateway governs both.
 
 </div>
+
+---
+
+# Part 2b — Govern an A2A agent
+
+MCP governs the **tools** an agent calls. The [**A2A (Agent2Agent) protocol**](https://a2a-protocol.org/) governs the **other agents** an agent talks to: A2A is a simple **JSON-RPC 2.0 over HTTP** contract where an agent publishes an **AgentCard** at `/.well-known/agent-card.json` and accepts a `message/send` call. As multi-agent systems grow, you want those agent-to-agent hops to flow **through your gateway** — same as model and tool traffic — for auth, rate limiting, and tracing.
+
+Because A2A is just HTTP + JSON-RPC, **the APIM passthrough pattern from Part 2 works unchanged** — no special A2A feature is required. APIM proxies the agent card and the `message/send` calls to a backend A2A agent and applies your policies in front.
+
+## A dummy A2A agent on Container Apps
+
+The lab ships a tiny, dependency-free A2A agent in [src/a2a/dummy_agent.py](src/a2a/dummy_agent.py) — a standard-library `http.server` that serves an AgentCard and answers `message/send` with canned "specialist" advice. It is deliberately minimal so it runs inside a stock `python:3.12-slim` container with **no pip install** (instant, reliable startup), with its code mounted from a secret volume.
+
+A public endpoint is required because **APIM runs in the cloud and cannot reach an A2A server on `localhost`** — so the dummy agent is deployed as an **Azure Container App** (public HTTPS ingress), mirroring how Part 5 hosts LiteLLM.
+
+## Deploy it as code (and call it from an agent)
+
+[infra/a2a-agent.bicep](infra/a2a-agent.bicep) deploys the dummy agent Container App **and** wires the APIM passthrough: a `dummy-a2a` **backend** (the Container App FQDN), a `dummy-a2a` **API** (path `dummy-a2a`) with a `POST /` operation (the A2A JSON-RPC) and `GET /.well-known/agent-card.json` operations, an API-key subscription, and the same passthrough policy as Part 2 (`set-backend-service` + `forward-request buffer-response="false"`). Deploy it on top of the main deployment:
+
+```powershell
+> cd infra
+> ./deploy-a2a.ps1     # prints the agent's direct URL and its APIM URL
+```
+
+The gateway then exposes the agent at:
+
+```
+https://<apim-name>.azure-api.net/dummy-a2a
+```
+
+[agent_a2a_apim.py](src/test/agent_a2a_apim.py) shows an **orchestrator** agent that combines a **local** Python tool (`get_exchange_rate`) with a `consult_specialist` tool that delegates to the **remote A2A agent** — both reached **through APIM** with the *same* subscription key (the A2A call is plain JSON-RPC over `httpx`, so it matches the dummy agent's wire format exactly):
+
+```powershell
+> $env:APIM_GATEWAY_URL = "<apimResourceGatewayURL>"
+> $env:APIM_API_KEY      = "<subscription key>"
+> $env:A2A_URL_APIM      = "<apimResourceGatewayURL>/dummy-a2a"
+> python ../src/test/agent_a2a_apim.py
+```
+
+<div class="tip" data-title="Validated">
+
+> The orchestrator asked the specialist agent *whether to put a gateway in front of agents* **and** converted *100 USD → EUR*, answering: *"The specialist provided the following advice: 'Always place an AI gateway in front of your models AND your agents so a single control plane handles auth, quotas, logging and routing.' … 100 USD is equivalent to 92 EUR."* The model (inference) call **and** the A2A agent call both flowed through APIM on one key — **one gateway governs models, tools, and agents**.
+
+</div>
+
+## What about LiteLLM?
+
+LiteLLM ships an **Agent Gateway (A2A)** that can proxy A2A agents at `POST /a2a/{agent_id}` with virtual-key auth, logging, and spend tracking ([docs](https://docs.litellm.ai/docs/a2a)). However, registering an agent there requires a **DB-backed control plane** (`store_model_in_db` + a database, via the Admin UI or `/v1/agents` API). This lab runs LiteLLM as a **file-config** Container App with **no database**, so the A2A gateway is not wired up here.
+
+So [agent_a2a_litellm.py](src/test/agent_a2a_litellm.py) runs the same orchestrator with **LiteLLM governing the model** traffic, while the A2A call goes **direct** to the dummy agent's Container App. It validated end to end (specialist advice + *100 USD → 92 EUR*). To also govern the A2A hop with LiteLLM, enable `store_model_in_db` + a database and register the agent — then point `A2A_URL_DIRECT` at `{litellm}/a2a/<agent>`. Contrast this with APIM, where the **same** gateway governs model, MCP, and A2A traffic today.
 
 ---
 
