@@ -6,30 +6,31 @@ protocol). The orchestrator keeps its **local** Python tool (get_exchange_rate) 
 tool that delegates to a **remote A2A "specialist" agent**.
 
   - model (inference) traffic -> load-balanced Foundry backends, via LiteLLM ({base_url}/chat/completions)
-  - agent (A2A) traffic       -> dummy specialist agent
+  - agent (A2A) traffic       -> dummy specialist agent, ALSO via LiteLLM ({base_url}/a2a/{agent})
 
-WHAT WORKS / WHAT DOESN'T (honest finding):
-  LiteLLM *does* ship an "Agent Gateway (A2A)" that can proxy A2A agents at
-  POST /a2a/{agent_id} with virtual-key auth, logging and spend tracking. BUT agent
-  registration requires a DB-backed control plane (store_model_in_db + Postgres / the Admin
-  UI / the /v1/agents API). This POC runs LiteLLM as a *file-config* Container App with NO
-  database, so the A2A gateway is not wired up here.
+FULL A2A THROUGH THE GATEWAY:
+  LiteLLM ships an "Agent Gateway (A2A)" that proxies A2A agents at POST /a2a/{agent_id}
+  with master/virtual-key auth, logging and spend tracking. It requires a DB-backed control
+  plane (store_model_in_db + a database). The deployed LiteLLM Container App now runs a
+  PostgreSQL sidecar (infra/litellm-foundry.bicep), so the A2A gateway is enabled and the
+  dummy specialist is registered as an agent. This sample therefore sends BOTH the model
+  calls and the A2A hop through LiteLLM — the same single gateway governs both, matching the
+  APIM variant (agent_a2a_apim.py).
 
-  Therefore, in this sample LiteLLM governs the MODEL traffic, and the A2A call goes
-  DIRECT to the dummy agent's Container App (set A2A_URL_DIRECT). To also govern the A2A
-  hop with LiteLLM, enable store_model_in_db + a database and register the agent (see
-  https://docs.litellm.ai/docs/a2a). Contrast this with the APIM variant
-  (agent_a2a_apim.py), where the SAME gateway governs both model and A2A traffic today.
+  Register the agent once (the deploy flow / register_a2a_agent.py does this):
+    POST {base}/v1/agents  (Authorization: Bearer <master key>)
+    {"agent_name": "dummy-specialist", "agent_card_params": {"url": "<dummy direct URL>"}}
+  Then invoke it at POST {base}/a2a/dummy-specialist (A2A JSON-RPC message/send).
 
 Prereqs:
-  - LiteLLM running (cd ../litellm; docker compose up, or the deployed Container App).
-  - The dummy A2A agent deployed (infra/a2a-agent.bicep) and its direct URL in A2A_URL_DIRECT.
+  - LiteLLM running with the Postgres backend (the deployed Container App).
+  - The dummy A2A agent deployed (infra/a2a-agent.bicep) and registered in LiteLLM.
   - pip install -r requirements.txt
 
 Usage (PowerShell):
     $env:LITELLM_BASE_URL   = "https://ca-litellm-xxxx.azurecontainerapps.io"
     $env:LITELLM_MASTER_KEY = "sk-litellm-foundry-poc"
-    $env:A2A_URL_DIRECT     = "https://ca-a2a-dummy-xxxx.azurecontainerapps.io"
+    $env:A2A_AGENT_NAME     = "dummy-specialist"   # registered agent name (default)
     python agent_a2a_litellm.py
 """
 import asyncio
@@ -45,12 +46,11 @@ set_tracing_disabled(True)
 BASE_URL = os.environ.get("LITELLM_BASE_URL", "http://localhost:4000").rstrip("/")
 API_KEY = os.environ["LITELLM_MASTER_KEY"]
 MODEL = os.environ.get("MODEL", "gpt-4o-mini")
-# Dummy A2A specialist agent. With no DB-backed LiteLLM A2A gateway in this POC, we call it
-# directly. (If you register it in LiteLLM's A2A gateway, set this to {base}/a2a/<agent>.)
-A2A_URL = os.environ.get("A2A_URL_DIRECT") or os.environ.get("A2A_URL_APIM")
-if not A2A_URL:
-    raise SystemExit("Set A2A_URL_DIRECT to the dummy agent's direct Container App URL.")
-A2A_URL = A2A_URL.rstrip("/")
+# The A2A specialist is registered in LiteLLM's A2A gateway, so we reach it THROUGH LiteLLM
+# at {base}/a2a/<agent>. The same master key authenticates both the model and the A2A hop.
+A2A_AGENT_NAME = os.environ.get("A2A_AGENT_NAME", "dummy-specialist")
+A2A_URL = f"{BASE_URL}/a2a/{A2A_AGENT_NAME}"
+A2A_HEADERS = {"Authorization": f"Bearer {API_KEY}"}
 
 # AsyncOpenAI client pointed at the LiteLLM proxy (plain OpenAI-style routes).
 client = AsyncOpenAI(base_url=BASE_URL, api_key=API_KEY)
@@ -102,8 +102,8 @@ def get_exchange_rate(base: str, quote: str) -> str:
 
 @function_tool
 def consult_specialist(question: str) -> str:
-    """Ask the remote specialist agent (A2A) for expert advice. (REMOTE agent, direct call)"""
-    return call_a2a_agent(A2A_URL, question, headers={})
+    """Ask the remote specialist agent (A2A) for expert advice. (REMOTE agent, via LiteLLM gateway)"""
+    return call_a2a_agent(A2A_URL, question, headers=A2A_HEADERS)
 
 
 async def main() -> None:
@@ -124,7 +124,7 @@ async def main() -> None:
         "then convert 100 USD to EUR using the exchange-rate tool.",
     )
     print("Agent answer:\n", result.final_output)
-    print("\n=> LiteLLM governed the model calls; the A2A call went direct (see module docstring).")
+    print(f"\n=> LiteLLM governed BOTH the model calls and the A2A hop ({BASE_URL}/a2a/{A2A_AGENT_NAME}).")
 
 
 if __name__ == "__main__":

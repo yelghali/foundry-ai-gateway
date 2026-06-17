@@ -38,6 +38,13 @@ param litellmImage string = 'ghcr.io/berriai/litellm:main-stable'
 @secure()
 param litellmMasterKey string
 
+@description('Password for the in-cluster PostgreSQL backend (sidecar). Override for anything beyond a POC.')
+@secure()
+param dbPassword string = 'pg-${uniqueString(resourceGroup().id, 'litellm-db')}'
+
+@description('Container image for the PostgreSQL backend that gives LiteLLM a control-plane database (enables the A2A agent gateway, virtual keys, spend tracking, Admin UI).')
+param postgresImage string = 'postgres:16-alpine'
+
 @description('Name of the Foundry Model Gateway connection.')
 param connectionName string = 'litellm-gateway'
 
@@ -59,6 +66,13 @@ var cognitiveServicesUserRoleId = 'a97b65f3-24c7-4388-baec-2e87135dc908' // Cogn
 var modelsMetadata = '[{"name":"${modelName}","properties":{"model":{"name":"${modelName}","version":"${modelVersion}","format":"OpenAI"}}}]'
 // LiteLLM expects "Authorization: Bearer <master_key>".
 var authConfigMetadata = '{"type":"api_key","name":"Authorization","format":"Bearer {api_key}"}'
+
+// PostgreSQL backend (sidecar) connection string. LiteLLM reads DATABASE_URL and runs its
+// Prisma migrations automatically on startup. The DB runs in the SAME replica, reachable
+// over localhost (containers in a Container App share the network namespace).
+var pgUser = 'litellm'
+var pgDatabase = 'litellm'
+var databaseUrl = 'postgresql://${pgUser}:${dbPassword}@localhost:5432/${pgDatabase}'
 
 // ------------------
 //    EXISTING FOUNDRY ACCOUNTS
@@ -154,6 +168,14 @@ resource litellmApp 'Microsoft.App/containerApps@2024-03-01' = {
           name: 'litellm-config'
           value: loadTextContent('../src/litellm/config.foundry.yaml')
         }
+        {
+          name: 'db-password'
+          value: dbPassword
+        }
+        {
+          name: 'database-url'
+          value: databaseUrl
+        }
       ]
     }
     template: {
@@ -196,11 +218,61 @@ resource litellmApp 'Microsoft.App/containerApps@2024-03-01' = {
               name: 'LITELLM_MASTER_KEY'
               secretRef: 'litellm-master-key'
             }
+            {
+              // Points LiteLLM at the PostgreSQL sidecar. Setting this turns on the
+              // DB-backed control plane: the A2A Agent Gateway, virtual keys, spend
+              // tracking and the Admin UI. LiteLLM runs its migrations on startup.
+              name: 'DATABASE_URL'
+              secretRef: 'database-url'
+            }
+            {
+              // Persist agents/keys created at runtime (vs. only config.yaml entries).
+              name: 'STORE_MODEL_IN_DB'
+              value: 'True'
+            }
           ]
           volumeMounts: [
             {
               volumeName: 'config'
               mountPath: '/etc/litellm'
+            }
+          ]
+        }
+        {
+          // PostgreSQL backend for LiteLLM, co-located in the same replica. The data
+          // directory uses ephemeral (EmptyDir) storage, so registrations are re-created
+          // by the deploy step — fine for a POC/lab. For production use Azure Database for
+          // PostgreSQL Flexible Server and set DATABASE_URL to it instead.
+          name: 'postgres'
+          image: postgresImage
+          resources: {
+            cpu: json('0.5')
+            memory: '1Gi'
+          }
+          env: [
+            {
+              name: 'POSTGRES_USER'
+              value: pgUser
+            }
+            {
+              name: 'POSTGRES_PASSWORD'
+              secretRef: 'db-password'
+            }
+            {
+              name: 'POSTGRES_DB'
+              value: pgDatabase
+            }
+            {
+              // Keep PGDATA in a subdirectory of the mounted volume (required when the
+              // mount root may contain a lost+found / is not empty).
+              name: 'PGDATA'
+              value: '/var/lib/postgresql/data/pgdata'
+            }
+          ]
+          volumeMounts: [
+            {
+              volumeName: 'pgdata'
+              mountPath: '/var/lib/postgresql/data'
             }
           ]
         }
@@ -219,6 +291,11 @@ resource litellmApp 'Microsoft.App/containerApps@2024-03-01' = {
               path: 'config.yaml'
             }
           ]
+        }
+        {
+          // Ephemeral scratch disk shared within the replica for the Postgres data dir.
+          name: 'pgdata'
+          storageType: 'EmptyDir'
         }
       ]
     }

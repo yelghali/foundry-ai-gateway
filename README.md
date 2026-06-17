@@ -44,7 +44,8 @@ foundry-ai-gateway/
     │   ├── agent_litellm.py         # LiteLLM: OpenAI Agents SDK agent + tool
     │   ├── agent_maf_litellm.py     # LiteLLM: Microsoft Agent Framework agent + tool
     │   ├── agent_mcp_litellm.py     # LiteLLM: agent + local tool + remote MS Learn MCP (proxied by LiteLLM)
-    │   ├── agent_a2a_litellm.py     # LiteLLM: agent + local tool + remote A2A specialist agent (LiteLLM governs model)
+    │   ├── agent_a2a_litellm.py     # LiteLLM: agent + local tool + remote A2A specialist agent (LiteLLM governs model + A2A)
+    │   ├── register_a2a_agent.py    # registers the dummy agent in LiteLLM's DB-backed A2A gateway
     │   ├── agent_foundry_litellm.py # Part 5: Foundry agent via the LiteLLM (ModelGateway) connection
     │   ├── agent_foundry_apim.py    # Part 5: Foundry agent via the APIM connection
     │   └── requirements.txt
@@ -86,7 +87,11 @@ cd ../infra; ./deploy-a2a.ps1                  # dummy A2A agent on Container Ap
 $env:A2A_URL_APIM = "<apimResourceGatewayURL>/dummy-a2a"
 python ../src/test/agent_a2a_apim.py          # agent + local tool + remote A2A agent, both THROUGH APIM
 $env:A2A_URL_DIRECT = "<a2aAgentDirectUrl>"
-python ../src/test/agent_a2a_litellm.py        # LiteLLM governs the model; A2A call goes direct (see note)
+python ../src/test/agent_a2a_apim.py          # agent + local tool + remote A2A agent, both THROUGH APIM
+# Govern the SAME A2A agent through LiteLLM (needs the Postgres-backed LiteLLM gateway from step 4b):
+$env:LITELLM_BASE_URL = "<gatewayUrl>"; $env:LITELLM_MASTER_KEY = "sk-litellm-foundry-poc"
+python ../src/test/register_a2a_agent.py       # register dummy-specialist in LiteLLM's A2A gateway
+python ../src/test/agent_a2a_litellm.py        # agent + local tool + remote A2A agent, both THROUGH LiteLLM
 
 # 4. (Part 5) Bring your own gateway INTO Foundry. Two connection types:
 #    (a) APIM as an "ApiManagement" connection (reuses Parts 1-3 — no container)
@@ -108,7 +113,7 @@ python ../src/test/agent_foundry_litellm.py    # Foundry agent runs its model TH
 > - **OpenAI SDK + agent** — `sample_openai_apim.py` (official SDK) and `agent_apim.py` (OpenAI Agents SDK with a tool) both ran on the gateway; the agent answered *"250 US dollars is approximately 230 euros and 197.50 pounds"* after calling its tool.
 > - **LiteLLM BYO (Entra ID auth)** — `test_litellm_tools.py` returned a chat reply **and** a `get_current_weather` tool call; `agent_litellm.py` ran the same agent on LiteLLM — proving **models + tools + agents**.
 > - **Remote MCP through the gateway** — `agent_mcp_apim.py` and `agent_mcp_litellm.py` each run one agent that combines a **local** Python tool with the **remote Microsoft Learn MCP** server reached *through the gateway* (APIM `learn-mcp` passthrough API; LiteLLM `mcp_servers`). Both answered *"Azure API Management is … (source: learn.microsoft.com)"* from MS Learn **and** converted *100 USD ≈ 92 EUR* with the local tool — proving the **same proxy + key govern both model and MCP-tool traffic**.
-> - **Remote A2A agent through the gateway** — `agent_a2a_apim.py` runs an orchestrator agent that combines a **local** Python tool with a **remote A2A (Agent2Agent) "specialist" agent** reached *through APIM* (`dummy-a2a` passthrough API → a stdlib A2A agent on Container Apps). It quoted the specialist's advice **and** converted *100 USD ≈ 92 EUR* — proving the **same proxy + key govern model and agent-to-agent traffic**. `agent_a2a_litellm.py` ran the same agent with **LiteLLM governing the model** (the A2A call goes direct — LiteLLM's A2A *Agent Gateway* needs a DB-backed registry not enabled in this file-config POC).
+> - **Remote A2A agent through the gateway** — `agent_a2a_apim.py` runs an orchestrator agent that combines a **local** Python tool with a **remote A2A (Agent2Agent) "specialist" agent** reached *through APIM* (`dummy-a2a` passthrough API → a stdlib A2A agent on Container Apps). It quoted the specialist's advice **and** converted *100 USD ≈ 92 EUR* — proving the **same proxy + key govern model and agent-to-agent traffic**. `agent_a2a_litellm.py` ran the **same** agent fully through **LiteLLM** — after deploying a **PostgreSQL sidecar** (so `store_model_in_db` enables the A2A *Agent Gateway*) and registering the agent (`register_a2a_agent.py`), **both** the model call and the A2A `message/send` flowed through LiteLLM at `{litellm}/a2a/dummy-specialist` on one master key.
 > - **LiteLLM *into* Foundry (Part 5)** — LiteLLM deployed to **Azure Container Apps** (managed identity, Entra ID auto-refresh) and registered as a Foundry **Model Gateway connection**. `GET /v1/models` → 200, `POST /v1/chat/completions` → 200, and a **Foundry Agent Service** prompt agent (`litellm-gateway/gpt-4o-mini`) replied end to end *through the gateway* — proving **Foundry Agent Service → connection → LiteLLM → Foundry**.
 > - **APIM *into* Foundry (Part 5)** — the existing APIM instance registered as a Foundry **`ApiManagement`** connection (`provisioningState: Succeeded`, `target: .../inference/openai`, `deploymentInPath: true`). A **Foundry Agent Service** prompt agent (`apim-gateway/gpt-4o-mini`) replied end to end *through APIM* — proving **Foundry Agent Service → ApiManagement connection → APIM → Foundry (backend pool)**.
 

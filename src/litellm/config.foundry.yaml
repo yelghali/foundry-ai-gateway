@@ -48,6 +48,11 @@ litellm_settings:
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY   # the key Foundry's connection presents
+  # Persist runtime-created objects (virtual keys, A2A agents, spend) in the PostgreSQL
+  # backend (DATABASE_URL points at the in-cluster Postgres sidecar). This is what turns
+  # on the A2A Agent Gateway: agents registered via POST /v1/agents are stored here and
+  # re-exposed at POST /a2a/{agent}, so LiteLLM governs agent-to-agent traffic too.
+  store_model_in_db: true
 
 # ---- MCP gateway ----
 # LiteLLM also acts as an MCP gateway: it registers remote MCP servers here and

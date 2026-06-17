@@ -36,6 +36,10 @@ param agentPort int = 8080
 
 var suffix = uniqueString(resourceGroup().id)
 
+// App name is fixed up-front so the container can advertise its own absolute public URL
+// in the A2A agent card (the LiteLLM A2A gateway needs an absolute url to forward to).
+var a2aAppName = 'ca-a2a-dummy-${suffix}'
+
 // ------------------
 //    EXISTING APIM
 // ------------------
@@ -78,7 +82,7 @@ resource managedEnv 'Microsoft.App/managedEnvironments@2024-03-01' = {
 // ------------------
 
 resource a2aApp 'Microsoft.App/containerApps@2024-03-01' = {
-  name: 'ca-a2a-dummy-${suffix}'
+  name: a2aAppName
   location: location
   properties: {
     managedEnvironmentId: managedEnv.id
@@ -112,6 +116,13 @@ resource a2aApp 'Microsoft.App/containerApps@2024-03-01' = {
             {
               name: 'PORT'
               value: '${agentPort}'
+            }
+            {
+              // Advertise the agent's own absolute HTTPS URL in the AgentCard so any A2A
+              // client that resolves the card (e.g. the LiteLLM A2A gateway) posts
+              // message/send back to this Container App rather than to a relative "/".
+              name: 'A2A_PUBLIC_URL'
+              value: 'https://${a2aAppName}.${managedEnv.properties.defaultDomain}'
             }
           ]
           volumeMounts: [

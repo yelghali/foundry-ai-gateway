@@ -72,7 +72,7 @@ foundry-ai-gateway/
 │   ├── main.bicep           # APIM v2 + 2 Foundry accounts + backend pool + inference API
 │   ├── policy.xml           # load-balancing + retry policy
 │   ├── deploy.ps1           # one-command deploy (Parts 1–3)
-│   ├── litellm-foundry.bicep        # Part 5: LiteLLM on Container Apps + Model Gateway connection
+│   ├── litellm-foundry.bicep        # Part 5: LiteLLM (+ Postgres sidecar) on Container Apps + Model Gateway connection
 │   ├── deploy-litellm-foundry.ps1   # Part 5: deploy the LiteLLM (ModelGateway) variant
 │   ├── apim-foundry.bicep           # Part 5: APIM as a Foundry ApiManagement connection
 │   ├── deploy-apim-foundry.ps1      # Part 5: deploy the APIM-connection variant
@@ -93,7 +93,8 @@ foundry-ai-gateway/
     │   ├── agent_litellm.py         # LiteLLM: OpenAI Agents SDK agent + tool
     │   ├── agent_maf_litellm.py     # LiteLLM: Microsoft Agent Framework agent + tool
     │   ├── agent_mcp_litellm.py     # LiteLLM: agent + local tool + remote MS Learn MCP (proxied by LiteLLM)
-    │   ├── agent_a2a_litellm.py     # LiteLLM: agent + local tool + remote A2A agent (LiteLLM governs model)
+    │   ├── agent_a2a_litellm.py     # LiteLLM: agent + local tool + remote A2A agent (LiteLLM governs model + A2A)
+    │   ├── register_a2a_agent.py    # registers the dummy agent in LiteLLM's DB-backed A2A gateway
     │   ├── agent_foundry_litellm.py # Part 5: Foundry agent via the LiteLLM (ModelGateway) connection
     │   └── agent_foundry_apim.py    # Part 5: Foundry agent via the APIM connection
     ├── a2a/                 # Part 2b: stdlib-only dummy A2A agent (dummy_agent.py)
@@ -343,9 +344,32 @@ https://<apim-name>.azure-api.net/dummy-a2a
 
 ## What about LiteLLM?
 
-LiteLLM ships an **Agent Gateway (A2A)** that can proxy A2A agents at `POST /a2a/{agent_id}` with virtual-key auth, logging, and spend tracking ([docs](https://docs.litellm.ai/docs/a2a)). However, registering an agent there requires a **DB-backed control plane** (`store_model_in_db` + a database, via the Admin UI or `/v1/agents` API). This lab runs LiteLLM as a **file-config** Container App with **no database**, so the A2A gateway is not wired up here.
+LiteLLM ships an **Agent Gateway (A2A)** that proxies A2A agents at `POST /a2a/{agent_id}` with master/virtual-key auth, logging, and spend tracking ([docs](https://docs.litellm.ai/docs/a2a)). Registering an agent requires a **DB-backed control plane** (`store_model_in_db` + a database). So [infra/litellm-foundry.bicep](infra/litellm-foundry.bicep) now runs a **PostgreSQL sidecar container** alongside LiteLLM in the same Container App (reachable over `localhost:5432`), and the config sets `store_model_in_db: true` — which turns the A2A gateway on.
 
-So [agent_a2a_litellm.py](src/test/agent_a2a_litellm.py) runs the same orchestrator with **LiteLLM governing the model** traffic, while the A2A call goes **direct** to the dummy agent's Container App. It validated end to end (specialist advice + *100 USD → 92 EUR*). To also govern the A2A hop with LiteLLM, enable `store_model_in_db` + a database and register the agent — then point `A2A_URL_DIRECT` at `{litellm}/a2a/<agent>`. Contrast this with APIM, where the **same** gateway governs model, MCP, and A2A traffic today.
+With the database in place you register the dummy specialist once (it persists in Postgres), then invoke it **through LiteLLM**:
+
+```powershell
+> $env:LITELLM_BASE_URL   = "<gatewayUrl>"
+> $env:LITELLM_MASTER_KEY = "sk-litellm-foundry-poc"
+> $env:A2A_URL_DIRECT     = "<a2aAgentDirectUrl>"   # upstream the gateway forwards to
+> python ../src/test/register_a2a_agent.py          # POST /v1/agents -> dummy-specialist
+> python ../src/test/agent_a2a_litellm.py           # model AND A2A hop both via LiteLLM
+```
+
+[agent_a2a_litellm.py](src/test/agent_a2a_litellm.py) runs the same orchestrator, but now the `consult_specialist` tool calls `{litellm}/a2a/dummy-specialist` with the master key — so **LiteLLM governs both the model calls and the A2A hop**, exactly like the APIM variant.
+
+<div class="tip" data-title="Validated">
+
+> After deploying the Postgres-backed LiteLLM and registering the agent, the orchestrator quoted the specialist's advice verbatim **and** converted *100 USD → 92 EUR* — with **both** the model (inference) call and the A2A `message/send` flowing through LiteLLM on one master key. Like APIM, **one gateway now governs models, tools, and agents**.
+
+</div>
+
+<div class="info" data-title="Production note">
+
+> The Postgres **sidecar** uses ephemeral storage, so registrations are lost if the replica restarts — re-run `register_a2a_agent.py` (it is idempotent). For production, point `DATABASE_URL` at **Azure Database for PostgreSQL Flexible Server** instead of the in-cluster container.
+
+</div>
+
 
 ---
 
