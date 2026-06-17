@@ -20,6 +20,7 @@ sections_title:
   - Part 3 — Foundry native AI Gateway
   - Part 4 — Bring your own gateway (LiteLLM)
   - Part 5 — Bring your own gateway INTO Foundry
+  - Summary — model, tool, agent
   - Clean up
 ---
 
@@ -675,6 +676,33 @@ Both connections expose models the same way (`<connection>/<model>`) and support
 > - **Networking** — public networking works for both APIM and self-hosted gateways; full network isolation needs the gateway reachable inside the Agent Service VNet.
 > - **Responsible AI** — BYO models are **Non-Microsoft Products**; content filters and other mitigations are **your** responsibility.
 > - **Docs** — [Bring your own model to Foundry Agent Service](https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway).
+
+</div>
+
+---
+
+# Summary — model, tool, agent
+
+Every pattern in this lab answers the same three questions: can my gateway let an app (or a Foundry agent) **call a model**, **call a tool** (MCP), and **call another agent** (A2A) — through *one* control plane? Here is what each scenario delivers, all **validated end to end** against the deployed gateway.
+
+| Gateway scenario | Call a **model** | Call a **tool** (MCP) | Call an **agent** (A2A) |
+| --- | --- | --- | --- |
+| **APIM — model load balancing** *(Part 1)* | ✅ `chat/completions` load-balanced across **2 Foundry regions** with retries + circuit breaker | — | — |
+| **APIM — MCP passthrough** *(Part 2)* | ✅ same inference API | ✅ **MS Learn MCP** via the `learn-mcp` passthrough API | — |
+| **APIM — A2A passthrough** *(Part 2b)* | ✅ same inference API | ✅ (as Part 2) | ✅ **dummy A2A agent** via the `dummy-a2a` passthrough API |
+| **Foundry native AI Gateway** *(Part 3)* | ✅ **per-project token limits** (portal-attached APIM v2) | — *(model governance only)* | — |
+| **LiteLLM — bring your own** *(Parts 4–5)* | ✅ OpenAI-compatible, Entra ID, multi-region | ✅ `mcp_servers` re-exposed at `/mcp` | ✅ **A2A Agent Gateway** at `/a2a/{agent}` *(needs the Postgres backend)* |
+| **Your gateway *into* Foundry** *(Part 5)* | ✅ Foundry Agent Service runs its **model** through APIM **or** LiteLLM | — *(tools run Foundry-side, not through your gateway)* | — |
+
+<div class="tip" data-title="The big picture">
+
+> **One gateway, one key, three kinds of traffic.** The headline of the lab is that the **same** proxy + credential can govern **model**, **tool (MCP)**, and **agent (A2A)** calls:
+>
+> - **APIM** does all three *today* with plain passthrough APIs — proven in Parts 1, 2, and 2b on a single subscription key.
+> - **LiteLLM** matches it once it has a database (the **Postgres sidecar**) — model + MCP + A2A on one master key.
+> - **Foundry's native gateway** and the **into-Foundry connections** focus on **model** governance; tools and agents are then orchestrated Foundry-side.
+>
+> Legend: ✅ = built & validated in this lab · — = not part of that scenario.
 
 </div>
 
