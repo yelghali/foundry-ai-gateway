@@ -426,22 +426,20 @@ Legend: ✅ works · ⚠️ works via fallback · ⛔ not supported.
 
 **Not supported today (and the workaround used):**
 
-- **A `CustomKeys` connection can't back a *model*.** Foundry serves models only through `ApiManagement` / `ModelGateway` connections (a `CustomKeys` model returns `400 — Category cannot be null`). `CustomKeys` is fine for **tool** auth.
-- **Managed-identity model auth needs an APIM-side token policy.** An `AAD` `ApiManagement` connection only resolves if APIM validates the project MI's Entra token (`validate-azure-ad-token`, audience `https://cognitiveservices.azure.com/`). The shared APIM here lacks it, so Scenario 2 falls back to the key; the native AI Gateway configures it automatically.
-- **Foundry's managed A2A tool can't be driven by a *gateway* model.** It returns `500` when the calling agent's model is an `ApiManagement` / `ModelGateway` connection, so every Foundry A2A leg (1/2/3) is driven by a small **native `gpt-4o-mini` driver** model. Plain model and MCP calls work fine over the gateway connections.
-- **A2A can't be routed *through* a path-scoped gateway.** Foundry resolves the A2A card at the host root `/.well-known/agent-card.json`, which LiteLLM/APIM path-scoped routes can't serve — so A2A is reached **directly** via a `RemoteA2A` connection to the agent's host root.
+- **A `CustomKeys` connection can't back a *model*.** Foundry serves models only through `ApiManagement` / `ModelGateway` connections (a `CustomKeys` model returns `400 — Category cannot be null`); `CustomKeys` is fine for **tool** auth. See [Bring your own model to Foundry Agent Service](https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway).
+- **Managed-identity model auth needs an APIM-side token policy.** An `AAD` `ApiManagement` connection only resolves if APIM validates the project MI's Entra token (`validate-azure-ad-token`, audience `https://cognitiveservices.azure.com/`). The shared APIM here lacks it, so Scenario 2 falls back to the key; the native AI Gateway configures it automatically — the same principle as the *MCP behind a gateway* behavior in [the reference below](#mcp-tool--managed-identity-including-behind-a-gateway). See [Configure AI Gateway in your Foundry resources](https://learn.microsoft.com/azure/foundry/configuration/enable-ai-api-management-gateway-portal).
+- **Foundry's managed A2A tool can't be driven by a *gateway* model.** It returns `500` when the calling agent's model is an `ApiManagement` / `ModelGateway` connection (verified live for both the APIM and LiteLLM model connections), so every Foundry A2A leg (1 / 2 / 3) is driven by a small **native `gpt-4o-mini` driver** model; plain model and MCP calls work fine over the gateway connections. This is a preview limitation of the managed A2A tool — see [Connect to an A2A agent endpoint from Foundry Agent Service](https://learn.microsoft.com/azure/foundry/agents/how-to/tools/agent-to-agent).
+- **A2A can't be routed *through* a path-scoped gateway.** Foundry resolves the A2A card at the connection target's **host root** `/.well-known/agent-card.json` (the A2A `.well-known` discovery contract), which the path-scoped routes of LiteLLM/APIM can't serve — so A2A is reached **directly** via a `RemoteA2A` connection to the agent's host root. The fix is a **host-root card** (a dedicated hostname, or an APIM/shim that rewrites the card `url`); see [Host root vs custom path](#a2a-agent2agent-tool) below and [Agent2Agent (A2A) authentication](https://learn.microsoft.com/azure/foundry/agents/concepts/agent-to-agent-authentication).
 
-The **Foundry User** role on the project is required for any connection-backed model/tool/A2A call.
+The **Foundry User** role on the project is required for any connection-backed model / tool / A2A call (see [agent identity concepts](https://learn.microsoft.com/azure/foundry/agents/concepts/agent-identity)).
 
 **What you built:** an **APIM AI gateway** that load balances a Foundry model across regions (priority routing, circuit breakers, retries); **MCP and A2A governance** through APIM; a **bring-your-own LiteLLM** gateway registered into Foundry as a `ModelGateway` connection; and **four client scenarios** that consume the same model, tool, and agent through these gateways — contrasting a local app with Foundry agents over key, managed identity, and BYO connections.
 
----
+## Reference — A2A and MCP tool behavior (per Microsoft docs)
 
-# Reference — A2A and MCP tool behavior (per Microsoft docs)
+This appendix describes how **Foundry Agent Service** handles **A2A** and **MCP** tools in a real implementation, independent of this lab's wiring. It is sourced from Microsoft Learn (links at the end), and backs the limitations called out above.
 
-This appendix describes how **Foundry Agent Service** handles **A2A** and **MCP** tools in a real implementation, independent of this lab's wiring. It is sourced from Microsoft Learn (links at the end).
-
-## Behavior summary
+### Behavior summary
 
 | Tool | Behavior | Supported? | Notes |
 | --- | --- | --- | --- |
@@ -460,7 +458,7 @@ This appendix describes how **Foundry Agent Service** handles **A2A** and **MCP*
 
 Legend: ✅ supported · ⚠️ conditional · ⛔ not supported.
 
-## A2A (Agent2Agent) tool
+### A2A (Agent2Agent) tool
 
 **Connection.** A Foundry agent calls a remote A2A agent through a project connection of category `RemoteA2A` that stores the endpoint URL, the authentication, and an optional **agent card path**.
 
@@ -483,7 +481,7 @@ Legend: ✅ supported · ⚠️ conditional · ⛔ not supported.
 
 **Limitations (preview).** A2A **v1.0 and v0.3** only; for v1.0, **JSONRPC transport only** (no HTTP+JSON or gRPC); **text** modality only; **no streaming** (server-sent events).
 
-## MCP tool — managed identity (including behind a gateway)
+### MCP tool — managed identity (including behind a gateway)
 
 **Authentication methods.** MCP tools connect via a project connection and support **key-based**, **Microsoft Entra (managed identity)**, and **OAuth identity passthrough**.
 
@@ -493,7 +491,7 @@ Legend: ✅ supported · ⚠️ conditional · ⛔ not supported.
 
 **Troubleshooting (Entra).** `401` = wrong/unaccepted audience, or the endpoint doesn't accept Entra tokens; `403` = the identity is missing role assignments (changes take up to ~10 minutes to propagate).
 
-## APIM as the front door for LiteLLM (Entra ID in, key out)
+### APIM as the front door for LiteLLM (Entra ID in, key out)
 
 You can put **APIM in front of LiteLLM** so callers authenticate with **Microsoft Entra ID** while the **LiteLLM master key stays server-side**. APIM validates the inbound token (`validate-azure-ad-token`) and injects the LiteLLM key on the backend call (`set-header Authorization: Bearer sk-…`). This is the **recommended enterprise pattern**: centralized auth, hidden secrets, throttling, and observability — clients never see the LiteLLM key.
 
@@ -511,7 +509,7 @@ You can put **APIM in front of LiteLLM** so callers authenticate with **Microsof
 - ⚠️ APIM must validate the token with the **correct audience** and accept the managed identity's **application (client) ID**; otherwise the token is ignored and you fall back to key-based.
 - ⚠️ **A2A discovery caveat** — confirm whether the **card fetch** carries the MI token. If the card path is Entra-protected but discovery is unauthenticated, keep the **card path anonymous** and protect only the **message endpoint**. Using a custom `AgentCardPath` also means a second A2A agent no longer collides with an existing host-root card on the same gateway.
 
-## Project connections vs. the AI Gateway tab
+### Project connections vs. the AI Gateway tab
 
 Both approaches put **APIM in front of Foundry**; they differ in **who configures the gateway**. This lab uses **project connections** (the manual / bring-your-own path) against an APIM it deploys itself — it does **not** use the native **AI Gateway** tab.
 
