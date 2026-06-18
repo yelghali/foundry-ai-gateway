@@ -221,6 +221,8 @@ The baseline: a **client-orchestrated** agent. There is **no Foundry account and
 
 **Setup.** Only the APIM gateway (Setup 1–2) is required — no client Foundry account. Provide the gateway URL and subscription key:
 
+> **No Foundry connections here** — this scenario uses no `Microsoft.CognitiveServices/.../connections` resources. The MAF agent calls the APIM passthrough APIs directly with a subscription key; those APIs (`/inference`, `/learn-mcp/mcp`, `/dummy-a2a`) are defined on APIM in [infra/apim-foundry.bicep](infra/apim-foundry.bicep) and [infra/a2a-apim.bicep](infra/a2a-apim.bicep). The bicep connection resources start with Scenario 1.
+
 **Run.**
 
 ```powershell
@@ -247,6 +249,44 @@ The same APIM gateway as Scenario 0, but now the agent runs **inside Foundry's A
 - **tool** — an `MCPTool` pointed at the APIM Learn-MCP URL, authenticated by the `mslearn-mcp-apim` `CustomKeys` connection (`project_connection_id`), driven by a small native `gpt-4o-mini` model.
 - **A2A** — an `A2APreviewTool` pointed at the dummy specialist's **host root** via the `dummy-a2a-direct` `RemoteA2A` connection, also driven by the native model.
 
+**Connections (bicep)** — from [infra/client-foundry-sc1.bicep](infra/client-foundry-sc1.bicep):
+
+```bicep
+resource apimCustomKeyConnection 'Microsoft.CognitiveServices/accounts/connections@2025-04-01-preview' = {
+  parent: account
+  name: 'apim-custom-key'                  // MODEL
+  properties: {
+    category: 'ApiManagement'             // a model must ride ApiManagement/ModelGateway
+    target: apimGatewayUrl                 // {apim}/inference/openai
+    authType: 'ApiKey'
+    credentials: { key: apimSubscription.listSecrets().primaryKey }
+    metadata: { models: modelsMetadata, deploymentInPath: 'true', inferenceAPIVersion: inferenceApiVersion }
+  }
+}
+
+resource mcpApimConnection 'Microsoft.CognitiveServices/accounts/connections@2025-04-01-preview' = {
+  parent: account
+  name: 'mslearn-mcp-apim'                 // TOOL — MS Learn MCP behind APIM
+  properties: {
+    category: 'CustomKeys'
+    target: apimMcpUrl                      // {apim}/learn-mcp/mcp
+    authType: 'CustomKeys'
+    credentials: { keys: { 'api-key': apimSubscription.listSecrets().primaryKey } }
+  }
+}
+
+resource a2aDirectConnection 'Microsoft.CognitiveServices/accounts/connections@2025-04-01-preview' = {
+  parent: account
+  name: 'dummy-a2a-direct'                 // A2A — remote specialist (host-root card)
+  properties: {
+    category: 'RemoteA2A'
+    target: dummyA2aUrl                     // serves /.well-known/agent-card.json
+    authType: 'CustomKeys'
+    credentials: { keys: { 'x-noop': 'none' } }   // discovery is anonymous; noop header
+  }
+}
+```
+
 **Setup.** Already deployed by `deploy-client-foundry.ps1` (Setup 4); endpoints and connection IDs are in `infra/scenario-outputs.json` (auto-loaded).
 
 **Run.**
@@ -270,6 +310,36 @@ python ../src/test/scenario1_custom_apim.py
 The same APIM gateway and `ApiManagement` category as Scenario 1, on the `client-foundry-sc2` account, but the model connection authenticates with the project's **managed identity** (`authType: AAD`, no stored key), with an automatic **subscription-key fallback**. This validates the **native AI Gateway** auth path.
 
 **Setup.** Already deployed by `deploy-client-foundry.ps1` — two model connections (`apim-gateway-mi` AAD, `apim-gateway` key) plus the shared MCP + A2A connections.
+
+**Connections (bicep)** — from [infra/client-foundry-sc2.bicep](infra/client-foundry-sc2.bicep); the model has two connections (MI first, key fallback):
+
+```bicep
+resource apimModelMiConnection 'Microsoft.CognitiveServices/accounts/connections@2025-04-01-preview' = {
+  parent: account
+  name: 'apim-gateway-mi'                  // MODEL (managed identity, tried first)
+  properties: {
+    category: 'ApiManagement'
+    target: apimGatewayUrl                  // {apim}/inference/openai
+    authType: 'AAD'                         // no stored key — uses the project MI's Entra token
+    metadata: { models: modelsMetadata, deploymentInPath: 'true', inferenceAPIVersion: inferenceApiVersion }
+  }
+}
+
+resource apimModelConnection 'Microsoft.CognitiveServices/accounts/connections@2025-04-01-preview' = {
+  parent: account
+  name: 'apim-gateway'                     // MODEL (subscription-key fallback)
+  properties: {
+    category: 'ApiManagement'
+    target: apimGatewayUrl
+    authType: 'ApiKey'
+    credentials: { key: apimSubscription.listSecrets().primaryKey }
+    metadata: { models: modelsMetadata, deploymentInPath: 'true', inferenceAPIVersion: inferenceApiVersion }
+  }
+}
+
+// TOOL + A2A use the same `mslearn-mcp-apim` (CustomKeys) and `dummy-a2a-direct`
+// (RemoteA2A) connections shown in Scenario 1.
+```
 
 **Run.**
 
@@ -295,6 +365,35 @@ python ../src/test/scenario2_aigateway_native.py
 Same Foundry agent shape as Scenario 2, on the `client-foundry-sc3` account, but the gateway is the self-hosted **LiteLLM** proxy registered as a **`ModelGateway`** connection (master key). The model **and** the MCP tool both ride LiteLLM; A2A uses the direct `RemoteA2A` connection (LiteLLM serves its agent card under a path, not the host root Foundry requires for the managed A2A tool — see [What works today](#what-works-today)).
 
 **Setup.** Already deployed by `deploy-litellm-foundry.ps1` (Setup 3) + `deploy-client-foundry.ps1` (Setup 4).
+
+**Connections (bicep)** — from [infra/client-foundry-sc3.bicep](infra/client-foundry-sc3.bicep):
+
+```bicep
+resource litellmModelConnection 'Microsoft.CognitiveServices/accounts/connections@2025-04-01-preview' = {
+  parent: account
+  name: 'litellm-gateway'                  // MODEL — self-hosted LiteLLM proxy
+  properties: {
+    category: 'ModelGateway'
+    target: litellmBaseUrl                  // the LiteLLM base URL
+    authType: 'ApiKey'
+    credentials: { key: litellmMasterKey }
+    metadata: { models: modelsMetadata, deploymentInPath: 'false', authConfig: litellmAuthConfig }
+  }
+}
+
+resource mcpLitellmConnection 'Microsoft.CognitiveServices/accounts/connections@2025-04-01-preview' = {
+  parent: account
+  name: 'mslearn-mcp-litellm'              // TOOL — MS Learn MCP behind LiteLLM
+  properties: {
+    category: 'CustomKeys'
+    target: '${litellmBaseUrl}/${litellmMcpPath}'   // {litellm}/mcp/
+    authType: 'CustomKeys'
+    credentials: { keys: { Authorization: 'Bearer ${litellmMasterKey}' } }
+  }
+}
+
+// A2A uses the same `dummy-a2a-direct` (RemoteA2A, host-root card) connection as Scenarios 1-2.
+```
 
 **Run.**
 
