@@ -2,13 +2,13 @@
 published: false
 type: workshop
 title: APIM ❤️ Azure AI Foundry — Building an AI Gateway
-short_title: APIM AI Gateway Lab
+short_title: Foundry  AI Gateway Lab
 description: Build an AI gateway in front of Azure AI Foundry (APIM load balancing, MCP + A2A governance, native AI Gateway, and a bring-your-own LiteLLM gateway), then run four client scenarios that reach the same model, tool, and agent through it.
 level: intermediate
 authors:
-  - Microsoft AI Gateway Lab
+  - Yassine El Ghali
 contacts:
-  - "@azure"
+  - linkedin.com/in/yelghali
 duration_minutes: 90
 tags: azure, api management, ai foundry, ai gateway, openai, mcp, litellm, load balancing
 sections_title:
