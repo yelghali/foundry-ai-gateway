@@ -1,5 +1,7 @@
 # APIM ❤️ Azure AI Foundry — Building an AI Gateway
 
+> 🚀 **[Launch the workshop on MOAW](https://aka.ms/ws?src=gh:yelghali/foundry-ai-gateway/main/docs/)**
+
 A hands-on **MOAW lab** showing five complementary ways to put an *AI gateway* in front of [Azure AI Foundry](https://learn.microsoft.com/azure/ai-foundry/):
 
 1. **Azure API Management (APIM) as an AI gateway** — load balance one model across **two Foundry regions** with a backend pool, priority/weight routing, circuit breakers, and transparent 429 retries.
