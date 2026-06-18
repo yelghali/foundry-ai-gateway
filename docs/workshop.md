@@ -27,22 +27,28 @@ sections_title:
 
 As organizations adopt generative AI, a single model endpoint quickly becomes a bottleneck for **resilience**, **cost control**, and **governance**. An *AI gateway* sits between your applications and your AI models to add load balancing, retries, token limits, observability, and policy enforcement — without changing client code.
 
+The architecture below shows what you build: two **enterprise Foundry** accounts exposing `gpt-4o-mini` models, a remote **MCP** server, and remote **A2A** agents — all fronted by an **APIM AI Gateway**, with a bring-your-own **LiteLLM** gateway alongside it. Three client apps reach those targets through the gateways: a **local in-memory app**, a **Foundry agent on the native APIM AI Gateway**, and a **Foundry agent on LiteLLM**.
+
+![Architecture: two enterprise Foundry accounts (models), a remote MCP server, and remote A2A agents sit behind an APIM AI Gateway and a LiteLLM gateway. Three client apps — a local in-memory MAF app, a Foundry agent on the native APIM gateway, and a Foundry agent on LiteLLM — reach those targets through the gateways.](assets/architecture.drawio.svg)
+
 This lab is organized like its test suite: you **build the gateways once (Setup)**, then run **four client scenarios** that each reach the **same three targets** through a gateway and run them in order — **model → tool → A2A**:
 
 - **model** — an enterprise `gpt-4o-mini` deployment, load balanced across two Foundry regions.
 - **tool** — the public **Microsoft Learn MCP** server, governed by your gateway.
 - **A2A** — a remote **Agent2Agent** "specialist" agent.
 
-The only thing that changes between scenarios is **who calls** and **through which gateway** — not *what* is called. Here is what each scenario is and what passes today (all verified end to end):
+The only thing that changes between scenarios is **who calls** and **through which gateway** — not *what* is called. Here is what each scenario is and what passes today:
 
 | Scenario | Client | Gateway / connection | model · tool · A2A |
 | --- | --- | --- | --- |
 | **0** | local **Microsoft Agent Framework** app (no Foundry) | APIM passthrough APIs + subscription key | ✅ · ✅ · ✅ |
-| **1** | **Foundry agent** (Azure AI Projects SDK) | APIM `ApiManagement` connection + **key** | ✅ · ✅ · ✅ |
-| **2** | **Foundry agent** | APIM `ApiManagement` connection + **managed identity** | ⚠️ MI → key fallback · ✅ · ✅ |
-| **3** | **Foundry agent** | **LiteLLM** `ModelGateway` connection + master key | ✅ · ✅ · ✅ |
+| **1** | **Foundry agent** (Azure AI Projects SDK) | APIM `ApiManagement` connection + **key** | ✅ · ✅ · ✅ † |
+| **2** | **Foundry agent** | APIM `ApiManagement` connection + **managed identity** | ✅ · ✅ · ✅ † |
+| **3** | **Foundry agent** | **LiteLLM** `ModelGateway` connection + master key | ✅ · ✅ · ✅ † |
 
-![Overview: a local Microsoft Agent Framework app (Scenario 0) and the Foundry Agent Service (Scenarios 1–3) reach the same model, MCP tool, and A2A specialist through APIM or LiteLLM, load balanced across two Foundry regions.](assets/overview.drawio.svg)
+> **What works — and the one combination that doesn't.** The **model** and **MCP-tool** legs pass over the gateway in all four scenarios; the APIM **managed-identity** model leg (Scenario 2) works once APIM is configured to validate the project MI's Entra token, and **A2A discovery** works via a `RemoteA2A` host-root connection.
+>
+> **† Model-through-gateway *plus* the Foundry A2A tool fails today.** Foundry's managed A2A tool returns `500` when the **calling agent's model is a gateway connection** (`ApiManagement` / `ModelGateway`). So in Scenarios 1–3 the A2A leg still passes, but only because it is driven by a small **native `gpt-4o-mini`** model rather than the gateway model. Both caveats — with the supporting Microsoft Learn references — are detailed in [What works today](#what-works-today).
 
 The **Setup** section builds the gateway capabilities the scenarios rely on: APIM load balancing across two regions, MCP and A2A governance through APIM, an optional native Foundry AI Gateway, and a bring-your-own LiteLLM gateway registered into Foundry. By the end you will understand the trade-offs between **Azure-native** and **third-party** gateways, and you will have run all four scenarios against working infrastructure.
 
@@ -206,7 +212,7 @@ LiteLLM also re-exposes registered MCP servers at **`/mcp/`** (note the **traili
 | Account | Bicep | Connections it creates |
 | --- | --- | --- |
 | `client-foundry-sc1` | [client-foundry-sc1.bicep](infra/client-foundry-sc1.bicep) | `apim-custom-key` (`ApiManagement`, key) · `mslearn-mcp-apim` (`CustomKeys`) · `dummy-a2a-direct` (`RemoteA2A`) + a native driver model |
-| `client-foundry-sc2` | [client-foundry-sc2.bicep](infra/client-foundry-sc2.bicep) | `apim-gateway-mi` (`ApiManagement`, AAD) · `apim-gateway` (`ApiManagement`, key) · `mslearn-mcp-apim` · `dummy-a2a-direct` + driver |
+| `client-foundry-sc2` | [client-foundry-sc2.bicep](infra/client-foundry-sc2.bicep) | `apim-gateway-mi` (`ApiManagement`, ProjectManagedIdentity) · `apim-gateway` (`ApiManagement`, key) · `mslearn-mcp-apim` · `dummy-a2a-direct` + driver |
 | `client-foundry-sc3` | [client-foundry-sc3.bicep](infra/client-foundry-sc3.bicep) | `litellm-gateway` (`ModelGateway`, key) · `mslearn-mcp-litellm` (`CustomKeys`) · `dummy-a2a-direct` + driver |
 
 > **Where to see these in the portal:** the **model** connections are `ApiManagement` / `ModelGateway` category, so they appear under **Models + endpoints** (admin-connected deployments), *not* the generic **Connections** list. The **MCP tool** (`CustomKeys`) and **A2A** (`RemoteA2A`) connections appear under **Connections**. The agents each scenario creates appear under **Build → Agents** and persist by default (set `KEEP_AGENT=0` to clean up).
@@ -307,20 +313,39 @@ python ../src/test/scenario1_custom_apim.py
 
 # Scenario 2 — Foundry agent via APIM (managed identity)
 
-The same APIM gateway and `ApiManagement` category as Scenario 1, on the `client-foundry-sc2` account, but the model connection authenticates with the project's **managed identity** (`authType: AAD`, no stored key), with an automatic **subscription-key fallback**. This validates the **native AI Gateway** auth path.
+The same APIM gateway and `ApiManagement` category as Scenario 1, on the `client-foundry-sc2` account, but the model connection authenticates with the project's **managed identity** (`authType: ProjectManagedIdentity`, no stored key). This validates the **native AI Gateway** auth path: Foundry sends the project MI's Entra token, APIM validates it and calls the backend Foundry with APIM's own identity. A subscription-key connection (`apim-gateway`) remains as a fallback.
 
-**Setup.** Already deployed by `deploy-client-foundry.ps1` — two model connections (`apim-gateway-mi` AAD, `apim-gateway` key) plus the shared MCP + A2A connections.
+**Setup.** Already deployed by `deploy-client-foundry.ps1` — two model connections (`apim-gateway-mi` managed identity, `apim-gateway` key) plus the shared MCP + A2A connections. The MI leg targets a dedicated APIM API (`/inference-mi/openai`, no subscription key) whose inbound policy runs `validate-azure-ad-token` to accept the project MI's Entra token.
+
+**How the managed-identity path is wired (steps).** To make a Foundry `ApiManagement` connection authenticate with the project's managed identity instead of a key, three things must line up:
+
+1. **Expose an APIM API for inference without a subscription key.** Add an inference API (here `/inference-mi/openai`) and set `subscriptionRequired: false` so the caller authenticates with an Entra token rather than an APIM subscription key.
+2. **Validate the caller's Entra token in the APIM inbound policy.** Add `validate-azure-ad-token` to the API's inbound policy, accepting the audience the Foundry project requests its token for (`https://cognitiveservices.azure.com`). APIM then forwards the request to the backend Foundry/Azure OpenAI using its **own** managed identity (`authentication-managed-identity` / `set-backend-service`), so no client key is ever stored.
+
+   ```xml
+   <validate-azure-ad-token tenant-id="{tenant-id}" header-name="Authorization"
+       failed-validation-httpcode="401"
+       failed-validation-error-message="Unauthorized: invalid or missing Entra token.">
+     <audiences>
+       <audience>https://cognitiveservices.azure.com</audience>
+       <audience>https://cognitiveservices.azure.com/</audience>
+     </audiences>
+   </validate-azure-ad-token>
+   ```
+3. **Create a project-scoped `ProjectManagedIdentity` connection.** The connection must be **project-scoped** (`Microsoft.CognitiveServices/accounts/projects/connections`, `parent: project` — not account-scoped), with `authType: 'ProjectManagedIdentity'`, an explicit `audience` matching the policy, and empty `credentials: {}`. Foundry then sends the project MI's Entra token (for that audience) on every inference call. (An account-scoped connection or `authType: 'AAD'` without an `audience` is **not** resolved for inference and returns `400 — Connection '<name>' not found`.)
 
 **Connections (bicep)** — from [infra/client-foundry-sc2.bicep](infra/client-foundry-sc2.bicep); the model has two connections (MI first, key fallback):
 
 ```bicep
-resource apimModelMiConnection 'Microsoft.CognitiveServices/accounts/connections@2025-04-01-preview' = {
-  parent: account
+resource apimModelMiConnection 'Microsoft.CognitiveServices/accounts/projects/connections@2025-04-01-preview' = {
+  parent: project                          // PROJECT-scoped connection
   name: 'apim-gateway-mi'                  // MODEL (managed identity, tried first)
   properties: {
     category: 'ApiManagement'
-    target: apimGatewayUrl                  // {apim}/inference/openai
-    authType: 'AAD'                         // no stored key — uses the project MI's Entra token
+    target: apimMiGatewayUrl                 // {apim}/inference-mi/openai (no subscription key)
+    authType: 'ProjectManagedIdentity'       // no stored key — uses the project MI's Entra token
+    audience: 'https://cognitiveservices.azure.com'  // token audience APIM validates
+    credentials: {}
     metadata: { models: modelsMetadata, deploymentInPath: 'true', inferenceAPIVersion: inferenceApiVersion }
   }
 }
@@ -351,12 +376,11 @@ python ../src/test/scenario2_aigateway_native.py
 
 | Leg | Connection (auth) | Result |
 | --- | --- | --- |
-| model (MI) | `apim-gateway-mi` (`ApiManagement`, AAD) | ⛔ expected fail → falls back |
-| model (key) | `apim-gateway` (`ApiManagement`, key) | ✅ PASS (fallback) |
+| model (MI) | `apim-gateway-mi` (`ApiManagement`, ProjectManagedIdentity) | ✅ PASS |
 | tool | `mslearn-mcp-apim` (`CustomKeys`) | ✅ PASS |
 | A2A | `dummy-a2a-direct` (`RemoteA2A`, native driver) | ✅ PASS |
 
-> The MI leg fails (`Connection 'apim-gateway-mi' not found`) because the **shared** enterprise APIM does not carry the `validate-azure-ad-token` inbound policy that accepts the project MI's Entra token (audience `https://cognitiveservices.azure.com/`). It falls back to the key. Foundry's **native AI Gateway** wires that policy up automatically, so an APIM provisioned by the native integration accepts the MI directly.
+> The MI leg works because the connection is **project-scoped** with `authType: ProjectManagedIdentity` and an explicit `audience`, and APIM carries a `validate-azure-ad-token` inbound policy on the `/inference-mi/openai` API that accepts the project MI's Entra token (audience `https://cognitiveservices.azure.com`). APIM then calls the backend Foundry with its **own** managed identity. The subscription-key connection (`apim-gateway`) stays available as a fallback.
 
 ---
 
@@ -413,22 +437,28 @@ python ../src/test/scenario3_aigateway_litellm.py
 
 # What works today
 
-Every scenario runs **model → tool → A2A**. All four pass end to end; the only fallback is Scenario 2's managed-identity model leg.
+Every scenario runs **model → tool → A2A**. The **model** and **MCP-tool** legs pass over the gateway in all four scenarios. The **A2A** leg also passes everywhere — but in the three Foundry scenarios it is driven by a **native model**, not the gateway model, because the *gateway-model + managed-A2A-tool* combination fails today (the limitation called out below).
 
 | Scenario | Model | Tool (MCP) | A2A (agent) |
 | --- | --- | --- | --- |
-| **0 — Local app via APIM** | ✅ | ✅ | ✅ (A2A via APIM passthrough) |
-| **1 — Foundry agent via APIM (key)** | ✅ | ✅ | ✅ (native driver) |
-| **2 — Foundry agent via APIM (managed identity)** | ⚠️ MI → key fallback | ✅ | ✅ (native driver) |
-| **3 — Foundry agent via LiteLLM (key)** | ✅ | ✅ | ✅ (native driver) |
+| **0 — Local app via APIM** | ✅ | ✅ | ✅ A2A via APIM passthrough |
+| **1 — Foundry agent via APIM (key)** | ✅ gateway | ✅ | ⚠️ native driver (gateway model ⛔) |
+| **2 — Foundry agent via APIM (managed identity)** | ✅ gateway (MI + token policy) | ✅ | ⚠️ native driver (gateway model ⛔) |
+| **3 — Foundry agent via LiteLLM (key)** | ✅ gateway | ✅ | ⚠️ native driver (gateway model ⛔) |
 
-Legend: ✅ works · ⚠️ works via fallback · ⛔ not supported.
+Legend: ✅ works · ⚠️ works via fallback / workaround · ⛔ not supported.
+
+**Confirmed working (with the config noted):**
+
+- **Model through the gateway** — key (Sc 1), managed identity (Sc 2), and BYO LiteLLM (Sc 3) all serve the model over the gateway connection.
+- **APIM managed-identity model auth** — works **once APIM validates the project MI's Entra token** (`validate-azure-ad-token`, audience `https://cognitiveservices.azure.com`) on a no-subscription-key inference API; Scenario 2 ships exactly that.
+- **A2A discovery** — Foundry resolves the agent card and calls the remote A2A agent through a `RemoteA2A` host-root connection (anonymous discovery, `.well-known/agent-card.json`).
 
 **Not supported today (and the workaround used):**
 
 - **A `CustomKeys` connection can't back a *model*.** Foundry serves models only through `ApiManagement` / `ModelGateway` connections (a `CustomKeys` model returns `400 — Category cannot be null`); `CustomKeys` is fine for **tool** auth. See [Bring your own model to Foundry Agent Service](https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway).
-- **Managed-identity model auth needs an APIM-side token policy.** An `AAD` `ApiManagement` connection only resolves if APIM validates the project MI's Entra token (`validate-azure-ad-token`, audience `https://cognitiveservices.azure.com/`). The shared APIM here lacks it, so Scenario 2 falls back to the key; the native AI Gateway configures it automatically — the same principle as the *MCP behind a gateway* behavior in [the reference below](#mcp-tool--managed-identity-including-behind-a-gateway). See [Configure AI Gateway in your Foundry resources](https://learn.microsoft.com/azure/foundry/configuration/enable-ai-api-management-gateway-portal).
-- **Foundry's managed A2A tool can't be driven by a *gateway* model.** It returns `500` when the calling agent's model is an `ApiManagement` / `ModelGateway` connection (verified live for both the APIM and LiteLLM model connections), so every Foundry A2A leg (1 / 2 / 3) is driven by a small **native `gpt-4o-mini` driver** model; plain model and MCP calls work fine over the gateway connections. This is a preview limitation of the managed A2A tool — see [Connect to an A2A agent endpoint from Foundry Agent Service](https://learn.microsoft.com/azure/foundry/agents/how-to/tools/agent-to-agent).
+- **Managed-identity model auth needs an APIM-side token policy.** A `ProjectManagedIdentity` `ApiManagement` connection only resolves if APIM validates the project MI's Entra token (`validate-azure-ad-token`, audience `https://cognitiveservices.azure.com`). Scenario 2 provisions a dedicated `/inference-mi/openai` API carrying that policy, so the MI leg passes; the native AI Gateway configures the same policy automatically — the same principle as the *MCP behind a gateway* behavior in [the reference below](#mcp-tool--managed-identity-including-behind-a-gateway). See [Configure AI Gateway in your Foundry resources](https://learn.microsoft.com/azure/foundry/configuration/enable-ai-api-management-gateway-portal).
+- **Model-through-gateway *plus* the managed A2A tool fails today.** Foundry's managed A2A tool returns `500` when the calling agent's model is an `ApiManagement` / `ModelGateway` connection (verified live for both the APIM and LiteLLM model connections), so every Foundry A2A leg (1 / 2 / 3) is driven by a small **native `gpt-4o-mini` driver** model; the model and MCP legs work fine over the gateway connections. The Microsoft Learn A2A tool docs describe the tool as sharing context between **Foundry-model-powered agents** and external endpoints — i.e. the *calling* agent is expected to run on a native Foundry model deployment, which is consistent with this preview behavior. No separate limitation note documents the `500` itself; treat it as a preview constraint. See [Connect to an A2A agent endpoint from Foundry Agent Service](https://learn.microsoft.com/azure/foundry/agents/how-to/tools/agent-to-agent) and its [preview limitations](https://learn.microsoft.com/azure/foundry/agents/how-to/enable-agent-to-agent-endpoint#limitations).
 - **A2A can't be routed *through* a path-scoped gateway.** Foundry resolves the A2A card at the connection target's **host root** `/.well-known/agent-card.json` (the A2A `.well-known` discovery contract), which the path-scoped routes of LiteLLM/APIM can't serve — so A2A is reached **directly** via a `RemoteA2A` connection to the agent's host root. The fix is a **host-root card** (a dedicated hostname, or an APIM/shim that rewrites the card `url`); see [Host root vs custom path](#a2a-agent2agent-tool) below and [Agent2Agent (A2A) authentication](https://learn.microsoft.com/azure/foundry/agents/concepts/agent-to-agent-authentication).
 
 The **Foundry User** role on the project is required for any connection-backed model / tool / A2A call (see [agent identity concepts](https://learn.microsoft.com/azure/foundry/agents/concepts/agent-identity)).
@@ -530,7 +560,7 @@ Both approaches put **APIM in front of Foundry**; they differ in **who configure
 | **Governance** | Whatever you put in your APIM | Per-project **token limits / quotas**, model + MCP + A2A governance, telemetry in Foundry / App Insights |
 | **Scope** | One connection = one project = one target | One gateway shared by all projects in the resource (**1 APIM ↔ 1 AI Gateway**) |
 
-**Why the lab uses connections.** It needs explicit, per-scenario control (key vs managed identity vs BYO LiteLLM) over a **hand-rolled** APIM. That's also why Scenario 2's managed-identity model leg falls back to the key: the lab's APIM doesn't include the `validate-azure-ad-token` policy that the **native AI Gateway would add automatically**.
+**Why the lab uses connections.** It needs explicit, per-scenario control (key vs managed identity vs BYO LiteLLM) over a **hand-rolled** APIM. To make Scenario 2's managed-identity model leg authenticate without a stored key, the lab adds — on a dedicated `/inference-mi/openai` API — the same `validate-azure-ad-token` policy that the **native AI Gateway would otherwise configure automatically**. With it, the `ProjectManagedIdentity` connection resolves and the MI leg passes; the `apim-gateway` key connection stays only as a fallback.
 
 **Docs:**
 
