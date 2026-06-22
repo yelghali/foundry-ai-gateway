@@ -38,3 +38,10 @@ Thumbs.db
 
 # Misc temp
 gitstatus*.txt
+
+# Connection dumps & scenario run logs (may contain endpoint keys / tokens)
+proj-conn.json
+proj-mi-conn.json
+src/test/proj-conn.json
+src/test/patch-body.json
+src/test/sc*.txt

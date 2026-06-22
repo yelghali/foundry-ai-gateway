@@ -1,0 +1,254 @@
+[
+  {
+    "question_id": "q1-single-spec",
+    "engine": "maf",
+    "available": true,
+    "doc_recall": 1.0,
+    "groundedness": 5.0,
+    "relevance": 5.0,
+    "retrieval": 5.0,
+    "subqueries": 2,
+    "latency_s": 8.2,
+    "doc_ids": [
+      "spec-fpx2000",
+      "spec-rbx7"
+    ],
+    "answer": "The positioning accuracy of the FPX-2000 is \u00b10.004 mm, and its spindle taper is HSK-A63 [spec-fpx2000].",
+    "error": ""
+  },
+  {
+    "question_id": "q1-single-spec",
+    "engine": "foundry-iq",
+    "available": true,
+    "doc_recall": 1.0,
+    "groundedness": 5.0,
+    "relevance": 5.0,
+    "retrieval": 5.0,
+    "subqueries": 0,
+    "latency_s": 4.98,
+    "doc_ids": [
+      "spec-fpx2000"
+    ],
+    "answer": "The FPX-2000 has a positioning accuracy of \u00b10.004 mm and a repeatability of \u00b10.002 mm [ref_id:0]. Its spindle taper is HSK-A63 [ref_id:0][ref_id:1].",
+    "error": ""
+  },
+  {
+    "question_id": "q2-cross-cnc-thermal",
+    "engine": "maf",
+    "available": true,
+    "doc_recall": 1.0,
+    "groundedness": 5.0,
+    "relevance": 5.0,
+    "retrieval": 5.0,
+    "subqueries": 3,
+    "latency_s": 8.8,
+    "doc_ids": [
+      "mnt-cool-12",
+      "sds-cool-09",
+      "sds-hyd-07",
+      "spec-fpx2000",
+      "spec-rbx7"
+    ],
+    "answer": "The FPX-2000 is rated for a positioning accuracy of **\u00b10.004 mm** and a repeatability of **\u00b10.002 mm** [spec-fpx2000]. \n\nTo maintain this accuracy, the following maintenance practices and ambient conditions are essential:\n\n1. **Maintenance:**\n   - Regular calibration of the spindle chiller every **2,000 spindle hours** or after any chiller component replacement. This includes ensuring that the coolant return temperature is stable at **20.0 \u00b1 0.3 \u00b0C** for optimal performance [mnt-cool-12].\n\n2. **Ambient Conditions:**\n   - The operating temperature should be maintained between **5\u201340 \u00b0C**, with relative humidity between **30\u201395%** (non-condensing). For the positioning accuracy to hold, the ambient temperature must be kept within **\u00b12 \u00b0C** of the desired setpoint [spec-fpx2000][mnt-cool-12].\n\nThese factors are critical to keeping the FPX-2000 in spec and preventing drift out of tolerance.",
+    "error": ""
+  },
+  {
+    "question_id": "q2-cross-cnc-thermal",
+    "engine": "foundry-iq",
+    "available": true,
+    "doc_recall": 1.0,
+    "groundedness": 5.0,
+    "relevance": 5.0,
+    "retrieval": 2.0,
+    "subqueries": 0,
+    "latency_s": 14.18,
+    "doc_ids": [
+      "mnt-cool-12",
+      "mnt-rob-30",
+      "spec-fpx2000"
+    ],
+    "answer": "The FPX-2000 CNC milling center has a **positioning accuracy rating** of **\u00b10.004 mm** and a **repeatability** of **\u00b10.002 mm** [ref_id:0][ref_id:3].\n\nTo maintain this accuracy and keep the machine within specifications, proper **ambient conditions** and **maintenance procedures** are necessary:\n- **Operating Temperature**: The machine should operate within a temperature range of **5\u00b0C to 40\u00b0C**, with strict control ensuring that the ambient temperature remains stable within **\u00b12\u00b0C** [ref_id:3]. This is crucial for maintaining the stated accuracy.\n- **Humidity**: Relative humidity must be between **30% and 95%**, and it should be non-condensing [ref_id:3].\n  \nFor maintenance:\n- The spindle chiller should be calibrated regularly, ideally every **2,000 spindle hours** or after chiller component replacements, to ensure thermal stability [ref_id:2].\n- It's essential to maintain stable coolant return temperatures at **20.0\u00b0C (\u00b10.3\u00b0C)** to avoid thermal drift affecting positioning accuracy [ref_id:6].\n  \nFollowing these operational and maintenance guidelines will help keep the FPX-2000 in spec and functioning accurately.",
+    "error": ""
+  },
+  {
+    "question_id": "q3-cross-pump-fluid",
+    "engine": "maf",
+    "available": true,
+    "doc_recall": 1.0,
+    "groundedness": 5.0,
+    "relevance": 5.0,
+    "retrieval": 5.0,
+    "subqueries": 3,
+    "latency_s": 17.48,
+    "doc_ids": [
+      "mnt-pump-21",
+      "mnt-rob-30",
+      "sds-cool-09",
+      "sds-hyd-07",
+      "spec-hpx450"
+    ],
+    "answer": "To successfully convert the HPX-450 pump from mineral oil to water-glycol fluid, we need to consider the following sub-questions:\n\n1. **What is the pressure rating of the HPX-450 pump?**\n2. **What modifications or maintenance must be done to the pump during the fluid change?**\n3. **What safety precautions apply when changing the fluid?**\n\n### Answers:\n\n1. **Pressure Rating:**\n   The HPX-450 pump has a maximum continuous pressure rating of **350 bar** and a peak pressure of **420 bar**. These ratings ensure that the pump can handle significant hydraulic loads efficiently [spec-hpx450].\n\n2. **Modifications Required:**\n   To change the fluid from mineral oil to water-glycol, you must:\n   - Install the **-WG seal kit** specifically designed for water-glycol fluids.\n   - Flush the pump according to the maintenance standard outlined in MNT-PUMP-21 before refilling it with the new fluid, to remove any residual mineral oil [sds-hyd-07][mnt-pump-21].\n\n3. **Safety Precautions:**\n   When changing to water-glycol fluid:\n   - Wear **nitrile gloves** and **safety glasses**.\n   - Ensure proper **ventilation** to prevent inhalation of any mist.\n   - Handle the water-glycol with care, as it contains ethylene glycol, which is harmful if ingested. Follow all first aid procedures for exposure [sds-hyd-07].\n\nIn summary, the HPX-450 pump operates under significant pressure ratings, requires specific modifications for the fluid change, and necessitates careful adherence to safety protocols. For more details on the operating specifications and safety guidelines, you can refer to documents [spec-hpx450], [mnt-pump-21], and [sds-hyd-07].",
+    "error": ""
+  },
+  {
+    "question_id": "q3-cross-pump-fluid",
+    "engine": "foundry-iq",
+    "available": true,
+    "doc_recall": 1.0,
+    "groundedness": 5.0,
+    "relevance": 5.0,
+    "retrieval": 2.0,
+    "subqueries": 0,
+    "latency_s": 14.47,
+    "doc_ids": [
+      "mnt-pump-21",
+      "sds-cool-09",
+      "sds-hyd-07",
+      "sds-rob-03",
+      "spec-hpx450"
+    ],
+    "answer": "To convert an HPX-450 pump from mineral oil to water-glycol fluid, here are the key details you need:\n\n### Pressure Rating\n- The HPX-450 pump has a **max continuous pressure** of **350 bar** and a **peak pressure** of **420 bar** [ref_id:0][ref_id:5].\n\n### Modifications Required\n1. **Seal Replacement**: Install the **-WG seal kit** designed for water-glycol fluids, as the standard seals used for mineral oil are not compatible with water-glycol [ref_id:1][ref_id:4].\n2. **Flushing**: Flush the pump according to the maintenance SOP (MNT-PUMP-21) to ensure that all traces of mineral oil are removed before refilling with water-glycol fluid [ref_id:4][ref_id:2].\n\n### Safety Steps for Fluid Change\n1. **Handling Precautions**: Wear nitrile gloves and safety glasses when handling fluids to avoid skin and eye irritation. Ensure good ventilation [ref_id:4][ref_id:1].\n2. **Emergency Procedures**: In case of skin contact, wash with soap and water. If the fluid gets into eyes or is ingested, seek medical attention immediately [ref_id:1].\n3. **Cross-Contamination**: Prevent mixing of mineral oil and water-glycol fluids, as this degrades the performance of both fluids [ref_id:1][ref_id:4].\n4. **Waste Disposal**: Dispose of the used mineral oil and any waste products according to local regulations as they require licensed hazardous-waste handling [ref_id:4].\n\nThese steps will ensure a successful and safe transition from mineral oil to water-glycol in the HPX-450 pump.",
+    "error": ""
+  },
+  {
+    "question_id": "q4-cross-robot-collab",
+    "engine": "maf",
+    "available": true,
+    "doc_recall": 1.0,
+    "groundedness": 5.0,
+    "relevance": 5.0,
+    "retrieval": 5.0,
+    "subqueries": 4,
+    "latency_s": 17.08,
+    "doc_ids": [
+      "mnt-cool-12",
+      "mnt-rob-30",
+      "sds-rob-03",
+      "spec-fpx2000",
+      "spec-hpx450",
+      "spec-rbx7"
+    ],
+    "answer": "The RBX-7 can operate collaboratively next to an operator under specific safety and operational limits. Here are the key points regarding collaborative operation, payload and speed limits, and maintenance requirements:\n\n### Collaborative Operation\n- The RBX-7 is designed for collaborative operation following ISO 10218-1/-2 and ISO/TS 15066 standards. \n- It uses speed-and-separation monitoring with a certified area scanner to ensure safety zones are defined:\n  - **Warning Zone**: Radius of 1.60 m, where it reduces speed to 250 mm/s.\n  - **Protective Zone**: Radius of 0.90 m, where the safe-torque-off (STO) function is triggered when a person enters this zone [SDS-ROB-03].\n\n### Payload and Speed Limits\n- For collaborative operation (when an operator is nearby), the payload must be reduced to **\u2264 3 kg**. The end-effector must also have rounded and padded edges to prevent injury.\n- Normal operational payload capacity of the RBX-7 is 7 kg, but collaborative use requires the limit to be decreased [SDS-ROB-03].\n- The maximum speed in the warning zone is limited to **250 mm/s** [SDS-ROB-03].\n\n### Maintenance Requirements\n- To maintain the robot's safety functions and repeatability:\n  - Safety functions must be validated during commissioning and at least **annually** or following any changes to safety configurations.\n  - Mechanical maintenance, specifically greasing the J2 and J3 reducers, should occur every **12 months or 6,000 operating hours** (or every 6 months for high-duty installations).\n  - Record all maintenance and validation in a safety logbook [MNT-ROB-30, SDS-ROB-03].\n\nThe RBX-7 is engineered to work safely alongside human operators, with stringent limits on payload, speed, and required maintenance to ensure continuous compliance and safety. \n\nReferences: [SDS-ROB-03], [MNT-ROB-30], [spec-rbx7].",
+    "error": ""
+  },
+  {
+    "question_id": "q4-cross-robot-collab",
+    "engine": "foundry-iq",
+    "available": true,
+    "doc_recall": 0.6666666666666666,
+    "groundedness": 5.0,
+    "relevance": 5.0,
+    "retrieval": null,
+    "subqueries": 0,
+    "latency_s": 13.75,
+    "doc_ids": [
+      "mnt-rob-30",
+      "spec-rbx7"
+    ],
+    "answer": "The RBX-7 is capable of running collaboratively alongside an operator. It is equipped with features like safe-torque-off (STO) and safe-limited-speed (SLS) to enhance safety during such operations, particularly when paired with a certified area scanner for speed-and-separation monitoring [ref_id:0].\n\n### Payload and Speed Limits\n- **Payload Capacity**: The RBX-7 can handle a maximum payload of 7 kg [ref_id:0].\n- **Speed Limits**: The maximum speeds across its axes are as follows:\n  - J1: 360\u00b0/s\n  - J2: 300\u00b0/s\n  - J3: 360\u00b0/s\n  - J4: 450\u00b0/s\n  - J5: 450\u00b0/s\n  - J6: 720\u00b0/s [ref_id:0].\n\n### Maintenance for Repeatability and Safety\nTo maintain the RBX-7's **repeatability** (\u00b10.02 mm) and safety standards, regular maintenance is crucial:\n- **Greasing Intervals**: The reducers for axes J2 and J3 should be greased every 12 months or after 6,000 operating hours, whichever comes first. For high-duty foundry installations, this interval should be halved to 6 months or 3,000 hours [ref_id:2].\n- **Backlash Check**: A backlash check should be performed, ensuring that total backlash is \u2264 1.0 arc-min. If it exceeds 2.0 arc-min, it indicates reducer wear and necessitates replacement [ref_id:1].\n- **Grease Specifications**: Use specific greases as per designated types for the different reducers (GR-9 for J1\u2013J3 and GR-4 for J4\u2013J6). Mixing grease types can void warranty [ref_id:2].\n\nOverall, proper adherence to the maintenance schedule and procedures is essential for operational efficacy and safety of the RBX-7.",
+    "error": ""
+  },
+  {
+    "question_id": "q5-cross-loto",
+    "engine": "maf",
+    "available": true,
+    "doc_recall": 0.5,
+    "groundedness": 5.0,
+    "relevance": 5.0,
+    "retrieval": 2.0,
+    "subqueries": 3,
+    "latency_s": 9.9,
+    "doc_ids": [
+      "sds-cool-09",
+      "sds-hyd-07",
+      "sds-rob-03",
+      "spec-fpx2000",
+      "spec-hpx450"
+    ],
+    "answer": "To service the FPX-2000 spindle chiller, the following safety steps and criteria must be adhered to:\n\n1. **Lockout and Tagout (LOTO) Requirements**:\n   - De-energize and lock out the main disconnect before any coolant or chiller service.\n   - Verify zero energy at the spindle drive.\n   - If handling coolant, be aware that hot coolant can exceed 60 \u00b0C; it must cool down below 30 \u00b0C before opening the chiller enclosure to prevent burns or other injuries [sds-cool-09].\n\n2. **Coolant-Handling Safety Steps**:\n   - Wear nitrile gloves and safety glasses while handling the spindle coolant.\n   - Provide adequate ventilation or mist extraction at the FPX-2000 enclosure to limit airborne coolant mist exposure to 0.5 mg/m\u00b3 [sds-cool-09].\n\n3. **Calibration Acceptance Criterion**:\n   - For the FPX-2000, the ambient temperature during operation must be maintained within \u00b12 \u00b0C of the specified operating temperature range of 5\u201340 \u00b0C to ensure proper functionality and calibration [spec-fpx2000].\n\nThese guidelines are critical to ensuring both personnel safety and the equipment's proper functioning during maintenance.",
+    "error": ""
+  },
+  {
+    "question_id": "q5-cross-loto",
+    "engine": "foundry-iq",
+    "available": true,
+    "doc_recall": 1.0,
+    "groundedness": 5.0,
+    "relevance": 5.0,
+    "retrieval": 5.0,
+    "subqueries": 0,
+    "latency_s": 10.86,
+    "doc_ids": [
+      "mnt-cool-12",
+      "sds-cool-09"
+    ],
+    "answer": "Before servicing the FPX-2000 spindle chiller, several important lockout and coolant-handling safety steps must be taken:\n\n1. **Lockout/Tagout Procedures**:\n   - De-energize and lock out the main disconnect before opening the chiller enclosure. This ensures that no energy can be supplied to the unit while servicing is being conducted, preventing accidental startups that could lead to injury [ref_id:1][ref_id:4].\n\n2. **Coolant Handling**:\n   - Ensure that the coolant has cooled down to below 30 \u00b0C before opening the enclosure. The coolant can exceed temperatures of 60 \u00b0C, which poses a burn risk [ref_id:1][ref_id:4].\n\n3. **Personal Protective Equipment**:\n   - Use nitrile gloves and safety glasses when handling the coolant, as it can cause skin and eye irritation [ref_id:4].\n\nFor calibration acceptance criteria:\n- The return temperature must be stable at 20.0 \u00b0C with an acceptable range of \u00b10.3 \u00b0C for a duration of 15 minutes during the calibration procedure. Additionally, the positioning test program should indicate no axis drift beyond \u00b10.003 mm [ref_id:2][ref_id:3].\n\nThese procedures and criteria are essential for ensuring both safety and accuracy in operations related to the FPX-2000 spindle chiller.",
+    "error": ""
+  },
+  {
+    "question_id": "q6-figure-pump-efficiency",
+    "engine": "maf",
+    "available": true,
+    "doc_recall": 1.0,
+    "groundedness": 5.0,
+    "relevance": 5.0,
+    "retrieval": 5.0,
+    "subqueries": 3,
+    "latency_s": 7.0,
+    "doc_ids": [
+      "spec-hpx450"
+    ],
+    "answer": "The HPX-450 bench performance curve shows the following details regarding volumetric efficiency:\n\n- **Peak Flow Rate for Volumetric Efficiency:** The volumetric efficiency peaks at **24 L/min.**\n- **Peak Efficiency:** The peak volumetric efficiency is **88%.**\n- **Recommended Operating Flow Band:** The efficient operating window is indicated as being between **0 to 15 L/min** in the shaded area of the performance curve.\n\nThese details were sourced from the datasheet for the HPX-450 hydraulic pump [spec-hpx450].",
+    "error": ""
+  },
+  {
+    "question_id": "q6-figure-pump-efficiency",
+    "engine": "foundry-iq",
+    "available": true,
+    "doc_recall": 1.0,
+    "groundedness": 4.0,
+    "relevance": 5.0,
+    "retrieval": 5.0,
+    "subqueries": 0,
+    "latency_s": 8.49,
+    "doc_ids": [
+      "mnt-pump-21",
+      "spec-hpx450"
+    ],
+    "answer": "The HPX-450 hydraulic pump has a peak volumetric efficiency of 88% at a flow rate of 24 L/min [ref_id:0][ref_id:2]. The recommended operating flow band for the HPX-450 is from 0 to 15 L/min [ref_id:0].",
+    "error": ""
+  },
+  {
+    "question_id": "q7-figure-robot-zones",
+    "engine": "maf",
+    "available": true,
+    "doc_recall": 1.0,
+    "groundedness": 5.0,
+    "relevance": 5.0,
+    "retrieval": 5.0,
+    "subqueries": 2,
+    "latency_s": 7.13,
+    "doc_ids": [
+      "sds-rob-03"
+    ],
+    "answer": "The RBX-7 has different safety zones defined with specific radii and corresponding safety reactions:\n\n1. **Warning Zone:**\n   - **Radius:** 1.60 meters\n   - **Safety Reaction:** Safe-limited-speed (SLS) of 250 mm/s is triggered when a person enters this zone.\n\n2. **Protective Zone:**\n   - **Radius:** 0.90 meters\n   - **Safety Reaction:** Safe-torque-off (STO) is triggered when a person enters this zone.\n\nThese safety features ensure that the RBX-7 operates safely when in collaborative settings with personnel [sds-rob-03].",
+    "error": ""
+  },
+  {
+    "question_id": "q7-figure-robot-zones",
+    "engine": "foundry-iq",
+    "available": true,
+    "doc_recall": 1.0,
+    "groundedness": 5.0,
+    "relevance": 5.0,
+    "retrieval": 5.0,
+    "subqueries": 0,
+    "latency_s": 13.88,
+    "doc_ids": [
+      "sds-rob-03",
+      "spec-rbx7"
+    ],
+    "answer": "The RBX-7 has distinct radii for its protective and warning safety zones, as follows:\n\n1. **Warning Zone Radius**: 1.60 meters. When a person enters this zone, the robot reduces its speed to a safe limited speed (SLS) of 250 mm/s [ref_id:0][ref_id:1].\n   \n2. **Protective Zone Radius**: 0.90 meters. If someone enters this zone, the safety reaction triggered is safe torque off (STO), effectively stopping the robot to provide maximum safety [ref_id:0][ref_id:1][ref_id:3].\n\nThese safety configurations are part of the collaborative operation limits defined in safety document SDS-ROB-03.",
+    "error": ""
+  }
+]

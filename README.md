@@ -68,6 +68,15 @@ foundry-ai-gateway/
         └── .env.example
     └── a2a/
         └── dummy_agent.py       # A2A: stdlib-only dummy A2A agent (agent card + JSON-RPC message/send)
+└── rag-demo/                 # RAG demo — agentic retrieval (MAF agent vs Foundry IQ) over a multimodal corpus
+    ├── build_indexes.py     # create 3 Azure AI Search indexes (vector + semantic) + verbalize embedded figures
+    ├── make_figures.py      # render the embedded performance/zone/trend figures (matplotlib)
+    ├── maf_rag.py           # MAF orchestrator: decompose -> multi-search -> rerank -> synthesize (model via APIM)
+    ├── foundry_iq.py        # Foundry IQ knowledge base: managed planner + agentic retrieval
+    ├── compare.py           # run both engines per question; score recall/groundedness/relevance/retrieval/latency
+    ├── evals.py             # model-graded evaluators (Azure AI Evaluation)
+    ├── questions.py         # evaluation question set (incl. figure-only q6/q7)
+    └── README.md            # full rag-demo guide
 ```
 
 ## Quickstart
@@ -161,6 +170,46 @@ The three gateway approaches differ most in **what they can govern**. The matrix
 - **Foundry control plane:** only **Azure API Management (v2)** can be registered as Foundry's *governance* AI Gateway. A third-party gateway like **LiteLLM cannot** be a governance plane — but its model *can* be attached to **Foundry Agent Service** as an **admin-connected** Model Gateway connection that **Foundry's** control plane manages (Part 5).
 
 **Guidance:** Use **APIM** (built or native) when you need Foundry-native governance — per-project quotas, agent/tool governance, control-plane registration. Use **LiteLLM** when you want a portable, multi-provider model + function-calling gateway and don't need Foundry's control plane.
+
+## RAG: agentic retrieval — MAF agent vs Foundry IQ (multimodal)
+
+The gateway scenarios above govern **model, MCP and A2A** traffic. The companion demo in
+**[rag-demo/](rag-demo/README.md)** adds the **retrieval** dimension: it answers the same
+question set two ways over one corpus and scores them with real, model-graded evaluators.
+
+- **MAF agent** (`maf_rag.py`) — *you* own orchestration: a Microsoft Agent Framework agent
+  decomposes the query, fires multiple Azure AI Search calls, reranks (semantic) and
+  synthesizes. Its chat model runs **through the APIM inference gateway** (reused from
+  Scenario 2), so every retrieval token is APIM-governed.
+- **Foundry IQ** (`foundry_iq.py`) — *managed* orchestration: a knowledge-base planner does the
+  decomposition, fan-out and synthesis internally. Its planner/synthesis model calls **Azure
+  OpenAI directly** (no APIM hop).
+
+The corpus is a fictional manufacturer (**Fabrikam Precision Manufacturing**): nine
+cross-referenced documents across three domains → three indexes. Several questions are
+deliberately **cross-domain**, where an agentic multi-query planner should beat a single
+top-k search.
+
+**Multimodal — docs with embedded images.** Three docs embed a real figure (rendered by
+`make_figures.py`), each encoding a fact that appears **nowhere in the text** (e.g. the
+HPX-450 pump's *peak volumetric efficiency 88 % @ 24 L/min*; the RBX-7 robot's *protective
+r=0.90 m → STO, warning r=1.60 m → SLS 250 mm/s*). At ingest each image is **verbalized** by a
+GPT-4o-mini vision call and indexed as its own chunk, so both engines retrieve image-only
+facts from the same indexes. Questions `q6`/`q7` are answerable **only** from the figures.
+
+> **Validated end to end** — 7 questions × 2 engines against deployed Azure AI Search + Azure OpenAI:
+>
+> | Engine | doc recall | groundedness | relevance | retrieval | sub-queries | latency |
+> |---|---|---|---|---|---|---|
+> | **MAF agent** (APIM-governed) | 93 % | 5.00 | 5.00 | 4.57 | 2.9 | 10.8 s |
+> | **Foundry IQ** (managed) | 95 % | 4.86 | 5.00 | 4.00 | 0.0 | 11.5 s |
+>
+> **Both engines correctly answered the figure-only questions** (`q6` pump efficiency, `q7`
+> robot zones) — facts that live only in the embedded images — proving the multimodal
+> pipeline (vision verbalization at ingest) works end to end. The MAF agent fires 2–4
+> APIM-governed sub-queries per question and edges groundedness/retrieval; Foundry IQ needs
+> zero orchestration code and edges recall but calls Azure OpenAI directly. Full per-question
+> scores are written to `rag-demo/results.json` / `results.csv`.
 
 ## References
 

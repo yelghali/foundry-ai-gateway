@@ -1,0 +1,31 @@
+# RAG comparison demo — MAF agents vs Foundry IQ
+
+# Azure AI Search: index creation, integrated vectorizer, hybrid + semantic search.
+# 11.6.0 (stable) covers indexes, VectorizableTextQuery, AzureOpenAIVectorizer.
+azure-search-documents>=11.6.0
+
+# Foundry IQ knowledge base + agentic retrieval (KnowledgeBase, KnowledgeBaseRetrievalClient)
+# live in a PREVIEW build. Install one of these to enable the foundry_iq.py path; without it
+# the Foundry IQ column degrades gracefully and the MAF column still runs.
+#   pip install --pre azure-search-documents
+# azure-search-documents>=11.7.0b1
+
+# Azure OpenAI client for embeddings (direct plane) + Foundry IQ planner model.
+openai>=1.40.0
+
+# Real, model-graded evaluators (groundedness / relevance / retrieval).
+azure-ai-evaluation>=1.0.0
+
+# Auth.
+azure-identity>=1.17.0
+
+# Microsoft Agent Framework — the MAF orchestrator. Pin sub-packages (see repo memory).
+agent-framework-core>=1.8.0
+agent-framework-openai>=1.8.0
+
+# Figure generation for the embedded-image (multimodal) corpus (make_figures.py).
+matplotlib>=3.8.0
+pillow>=10.0.0
+
+# Optional: only needed if you run fetch_docs.py to pull real public PDFs/pages.
+httpx>=0.27.0

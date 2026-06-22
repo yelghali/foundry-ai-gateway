@@ -1,0 +1,24 @@
+**Figure Type:** Plan view
+
+**Axis Labels:**
+- X-axis: "metres from robot base"
+- Y-axis: "metres from robot base"
+
+**Annotated Values:**
+- Monitored zone: \( r = 2.40 \, \text{m} \)
+- Warning zone: \( r = 1.60 \, \text{m} \) → SLS 250 mm/s
+- Protective zone: \( r = 0.90 \, \text{m} \) → STO
+
+**Numeric Data Points:**
+- RBX-7 base: (0, 0)
+
+**Peaks/Intersections:**
+- No peaks or intersections are specified in the figure. 
+
+**Callouts:**
+- "operator approach" (arrow pointing towards the right)
+
+**Shaded Bands:**
+- Protective zone (inner circle)
+- Warning zone (middle circle)
+- Monitored zone (outer circle)

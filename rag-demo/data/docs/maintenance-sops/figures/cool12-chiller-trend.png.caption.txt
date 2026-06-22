@@ -1,0 +1,24 @@
+**Figure Type:** Trend
+
+**Axis Labels:**
+- X-axis: time after WARMUP-30 (min)
+- Y-axis: return temperature (°C)
+
+**Annotated Values:**
+- Setpoint: 20.0 °C (dotted blue line)
+- Soft-alarm band: ±0.5 °C (red dashed lines at 19.5 °C and 20.5 °C)
+- Acceptance: ±0.3 °C (shaded green band between 19.7 °C and 20.3 °C)
+- Overshoot: 20.4 °C at 3 min (annotated)
+- Settled by: 9 min (annotated)
+
+**Numeric Data Points:**
+- Peak: 20.4 °C at (3 min, 20.4 °C)
+- Settled value: approximately 20.0 °C by (9 min)
+
+**Shaded Bands:**
+- Acceptance band: between 19.7 °C and 20.3 °C (green)
+- Soft-alarm band: between 19.5 °C and 20.5 °C (red dashed lines)
+
+**Coordinates of Peaks/Intersections:**
+- Overshoot: (3 min, 20.4 °C)
+- Settled: (9 min, approximately 20.0 °C)

@@ -1,0 +1,31 @@
+**Type:** Curve
+
+**X-axis:**  
+- Label: Flow rate Q (L/min)  
+- Range: 0 to 30 L/min
+
+**Y-axis (Left):**  
+- Label: Outlet pressure (bar)  
+- Range: 100 to 350 bar
+
+**Y-axis (Right):**  
+- Label: Volumetric efficiency (%)  
+- Range: 30 to 100%
+
+**Data Points and Annotations:**  
+- Peak volumetric efficiency: 88% at 24 L/min  
+- Outlet pressure curve peaks at approximately (24 L/min, 300 bar)  
+- Volumetric efficiency curve peaks at approximately (24 L/min, 90%)  
+
+**Horizontal Line:**  
+- 350 bar max continuous (dotted blue line)
+
+**Shaded Band:**  
+- Green shaded area between 0 to 15 L/min on the x-axis
+
+**Curve Descriptions:**  
+- Red curve represents volumetric efficiency  
+- Blue curve represents outlet pressure  
+
+**Intersections:**  
+- The volumetric efficiency curve intersects the outlet pressure curve at (24 L/min, 300 bar) and (25 L/min, 90%).
