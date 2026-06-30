@@ -17,6 +17,11 @@ Sub-scenarios (same remote targets as every scenario):
                                                  {litellm}/a2a/dummy-specialist); falls back to the
                                                  direct host-root connection otherwise. Orchestrated
                                                  by the native driver model.
+    3d  TOOL   MS Learn MCP behind APIM        -> MCPTool governed by the enterprise APIM gateway
+                                                 (mslearn-mcp-apim), driven by the litellm-gateway
+                                                 model: model via LiteLLM, tool via APIM.
+    3e  A2A    remote specialist THROUGH APIM  -> RemoteA2A connection routed through the enterprise
+                                                 APIM gateway (dummy-a2a-apim, host-root card).
 
 Run:
     python scenario3_aigateway_litellm.py
@@ -39,6 +44,12 @@ A2A_LITELLM_URL = cfg.get("a2aLitellmUrl", "SC3_A2A_LITELLM_URL")
 A2A_LITELLM_CONN_ID = cfg.get("sc3A2aLitellmConnId", "SC3_A2A_LITELLM_CONN_ID")
 A2A_DIRECT_URL = cfg.get("a2aDirectUrl", "SC3_A2A_URL")
 A2A_DIRECT_CONN_ID = cfg.get("sc3A2aConnId", "SC3_A2A_CONN_ID")
+# Through-APIM tool + A2A (same enterprise APIM gateway as Scenario 2), so Scenario 3 also
+# exercises the tool and agent legs through APIM — not only through its own LiteLLM gateway.
+MCP_APIM_URL = cfg.get("sc3McpApimUrl", "SC3_MCP_APIM_URL")
+MCP_APIM_CONN_ID = cfg.get("sc3McpApimConnId", "SC3_MCP_APIM_CONN_ID")
+A2A_APIM_URL = cfg.get("a2aApimUrl", "SC3_A2A_APIM_URL")
+A2A_APIM_CONN_ID = cfg.get("sc3A2aApimConnId", "SC3_A2A_APIM_CONN_ID")
 
 
 def main() -> None:
@@ -102,6 +113,39 @@ def main() -> None:
                 ("driver model", DRIVER_MODEL),
                 ("A2A url", A2A_DIRECT_URL),
                 ("A2A conn", s.short_conn(A2A_DIRECT_CONN_ID)),
+            ],
+        )
+
+    # 3d — TOOL through APIM: MS Learn MCP behind the enterprise APIM gateway, driven by the
+    # LiteLLM model (model via LiteLLM, tool via APIM — mixing gateways in one agent).
+    if MCP_APIM_URL and MCP_APIM_CONN_ID:
+        s.run_subscenario(
+            project, results, "sc3-aigateway-litellm-tool-apim",
+            s.tool_def(MODEL_REF, MCP_APIM_URL, MCP_APIM_CONN_ID, "APIM (enterprise gateway)"),
+            s.QUESTION_TOOL,
+            title="3d  TOOL   — MS Learn MCP via APIM (enterprise gateway)",
+            calls=[
+                ("model conn", MODEL_REF),
+                ("MCP url", MCP_APIM_URL),
+                ("MCP conn", s.short_conn(MCP_APIM_CONN_ID)),
+            ],
+        )
+
+    # 3e — A2A through APIM: remote specialist reached via the enterprise APIM gateway
+    # (RemoteA2A host-root card), orchestrated by the native driver model.
+    if A2A_APIM_URL and A2A_APIM_CONN_ID:
+        s.run_subscenario(
+            project, results, "sc3-aigateway-litellm-a2a-apim",
+            s.a2a_def(
+                DRIVER_MODEL, A2A_APIM_URL, A2A_APIM_CONN_ID,
+                description="A remote A2A specialist reached through the enterprise APIM gateway.",
+            ),
+            s.QUESTION_A2A,
+            title="3e  A2A    — remote specialist THROUGH APIM (RemoteA2A via enterprise gateway)",
+            calls=[
+                ("driver model", DRIVER_MODEL),
+                ("A2A url", A2A_APIM_URL),
+                ("A2A conn", s.short_conn(A2A_APIM_CONN_ID)),
             ],
         )
 

@@ -7,12 +7,12 @@
 //  account keeps that gateway story clean and isolated.
 //
 //  The native gateway is exercised **managed-identity-first, key-fallback**: the agent tries
-//  the project's managed identity (AAD connection) first and falls back to the subscription
-//  key connection. MI through APIM additionally requires the APIM inbound policy to validate
-//  the project MI token (validate-azure-ad-token); the run reports the real outcome honestly.
+//  the project's managed identity (ProjectManagedIdentity connection) first and falls back to
+//  the subscription key connection. MI through APIM additionally requires the APIM inbound
+//  policy to validate the project MI token (validate-azure-ad-token) on the matching audience.
 //
 //  Connections (clear, single-purpose):
-//    - apim-gateway-mi  (ApiManagement) -> APIM /inference/openai   (model, native, AAD/MI)
+//    - apim-gateway-mi  (ApiManagement) -> APIM /inference-mi/openai (model, native, MI, no key)
 //    - apim-gateway     (ApiManagement) -> APIM /inference/openai   (model, native, KEY)
 //    - mslearn-mcp-apim (CustomKeys)    -> {apim}/learn-mcp/mcp      (tool, same gateway)
 //    - dummy-a2a-direct (RemoteA2A)     -> the A2A agent host root   (agent)
@@ -37,6 +37,9 @@ param apimSubscriptionName string = 'subscription1'
 @description('Path to the inference API in APIM (e.g. inference/openai).')
 param inferenceApiPath string = 'inference/openai'
 
+@description('Path to the managed-identity inference API in APIM (no subscription key; Entra token auth).')
+param miInferenceApiPath string = 'inference-mi/openai'
+
 @description('Azure OpenAI API version Foundry appends to inference calls through APIM.')
 param inferenceApiVersion string = '2024-10-21'
 
@@ -60,6 +63,7 @@ param driverModelCapacity int = 50
 
 var modelsMetadata = '[{"name":"${modelName}","properties":{"model":{"name":"${modelName}","version":"${modelVersion}","format":"OpenAI"}}}]'
 var apimGatewayUrl = '${apimService.properties.gatewayUrl}/${inferenceApiPath}'
+var apimMiGatewayUrl = '${apimService.properties.gatewayUrl}/${miInferenceApiPath}'
 var apimMcpUrl = '${apimService.properties.gatewayUrl}/${learnMcpApiPath}'
 var cognitiveServicesUserRoleId = 'a97b65f3-24c7-4388-baec-2e87135dc908'
 
@@ -118,15 +122,21 @@ resource driverModelDeployment 'Microsoft.CognitiveServices/accounts/deployments
 }
 
 // MODEL (native, MI): Foundry's first-class ApiManagement connection authenticated by the
-// project's managed identity (AAD). Static `models` metadata means model discovery needs no
-// call, so the connection resolves and any failure surfaces honestly at inference time.
-resource apimModelMiConnection 'Microsoft.CognitiveServices/accounts/connections@2025-04-01-preview' = {
-  parent: account
+// project's managed identity. This must be a PROJECT-scoped connection with
+// authType 'ProjectManagedIdentity' and an explicit `audience` — the value the project MI
+// requests its Entra token for, which APIM's validate-azure-ad-token policy checks. Static
+// `models` metadata means model discovery needs no call. (Matches the official
+// foundry-samples apim-connection-common.bicep ProjectManagedIdentity branch.)
+resource apimModelMiConnection 'Microsoft.CognitiveServices/accounts/projects/connections@2025-04-01-preview' = {
+  parent: project
   name: 'apim-gateway-mi'
   properties: {
     category: 'ApiManagement'
-    target: apimGatewayUrl
-    authType: 'AAD'
+    target: apimMiGatewayUrl
+    #disable-next-line BCP036
+    authType: 'ProjectManagedIdentity'
+    audience: 'https://cognitiveservices.azure.com'
+    credentials: {}
     metadata: {
       models: modelsMetadata
       deploymentInPath: 'true'

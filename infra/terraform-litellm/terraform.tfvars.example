@@ -1,0 +1,48 @@
+# Copy to terraform.tfvars and edit. Required: subscription_id.
+
+subscription_id = "00000000-0000-0000-0000-000000000000"
+
+# Resource group + location
+create_resource_group = true
+resource_group_name   = "rg-litellm-gateway"
+location              = "eastus2"
+name_prefix           = "litellm"
+
+# --- Foundry backends ---------------------------------------------------------
+# Option A (default): let Terraform create two Foundries + a GPT-4 deployment each.
+create_foundries = true
+foundry_regions  = ["eastus2", "swedencentral"]
+model_deployment_name = "gpt-4.1"
+public_model_name     = "gpt-4.1"
+model_name            = "gpt-4.1"
+model_version         = "2025-04-14"
+model_sku_name        = "GlobalStandard"
+model_capacity        = 50
+
+# Option B: reuse existing Foundries (set create_foundries = false and provide the
+# two Azure OpenAI endpoints; grant the LiteLLM identity 'Cognitive Services User'
+# on them after apply — see README).
+# create_foundries           = false
+# existing_foundry_api_bases = [
+#   "https://my-foundry-eastus2.openai.azure.com/",
+#   "https://my-foundry-sweden.openai.azure.com/",
+# ]
+
+# --- PostgreSQL ---------------------------------------------------------------
+pg_admin_login = "litellmadmin"
+pg_sku_name    = "B_Standard_B1ms"
+pg_storage_mb  = 32768
+pg_version     = "16"
+
+# --- LiteLLM ------------------------------------------------------------------
+litellm_image = "ghcr.io/berriai/litellm:main-stable"
+api_version   = "2024-10-21"
+
+# --- Private networking (optional; simulate a locked-down env) -----------------
+# When true: a VNet is created, the ACA environment is integrated into it, the two
+# Foundries get private endpoints (public access OFF), and LiteLLM calls them over
+# the private network. LiteLLM ingress stays public so you can still test it.
+enable_private_networking = false
+# vnet_address_space = ["10.20.0.0/16"]
+# aca_subnet_prefix  = "10.20.0.0/23"
+# pe_subnet_prefix   = "10.20.2.0/24"

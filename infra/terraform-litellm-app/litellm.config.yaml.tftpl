@@ -1,0 +1,43 @@
+model_list:
+  # ---- ${public_model_name} on Foundry #1 (region 1) ----
+  - model_name: ${public_model_name}
+    litellm_params:
+      model: azure/${deployment_name}
+      api_base: os.environ/FOUNDRY1_API_BASE
+      api_version: os.environ/AZURE_API_VERSION
+      rpm: 1000
+    model_info:
+      base_model: azure/${deployment_name}
+
+  # ---- ${public_model_name} on Foundry #2 (region 2) ----
+  - model_name: ${public_model_name}
+    litellm_params:
+      model: azure/${deployment_name}
+      api_base: os.environ/FOUNDRY2_API_BASE
+      api_version: os.environ/AZURE_API_VERSION
+      rpm: 1000
+    model_info:
+      base_model: azure/${deployment_name}
+
+# Two entries share the same public model_name, so LiteLLM's router load balances
+# requests across the two regional Foundry backends.
+router_settings:
+  routing_strategy: simple-shuffle
+  num_retries: 2
+  allowed_fails: 1
+  cooldown_time: 30
+
+litellm_settings:
+  drop_params: true
+  # Authenticate to the azure/ deployments with the container's user-assigned
+  # managed identity (DefaultAzureCredential + AZURE_CLIENT_ID), refreshing the
+  # Entra ID token automatically — NO API keys (Foundry local/key auth is disabled).
+  enable_azure_ad_token_refresh: true
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  # DATABASE_URL (PostgreSQL Flexible Server) is read from the environment and is
+  # what enables virtual keys + spend budgets. store_model_in_db is intentionally
+  # OFF so the router serves the config model_list (otherwise it sources its
+  # routable pool from the empty DB and reports "no healthy deployments").
+  store_model_in_db: false

@@ -81,6 +81,11 @@ var cognitiveServicesUserRoleId = 'a97b65f3-24c7-4388-baec-2e87135dc908' // Cogn
 var inferenceBackendPoolName = 'inference-backend-pool'
 var inferenceAPIName = 'inference-api'
 var endpointPath = 'openai'
+// Managed-identity variant of the inference API: same backend pool, but no APIM subscription
+// key required (the Foundry project's Entra/MI token is the credential). Kept as a SEPARATE
+// API so the key-based `inference/openai` API is left completely untouched.
+var miInferenceAPIName = 'inference-mi-api'
+var miInferenceAPIPath = 'inference-mi'
 
 // Flatten the (account x model) matrix so we can deploy every model on every account.
 // map/flatten (with lambdas) is used instead of nested for-expressions, which Bicep
@@ -94,6 +99,9 @@ var modelDeploymentMatrix = flatten(map(aiServicesConfig, (account, ai) => map(m
 // The backend-id used by the policy: the pool when there are multiple backends, otherwise the single backend.
 var policyBackendId = (length(aiServicesConfig) > 1) ? inferenceBackendPoolName : aiServicesConfig[0].name
 var policyXml = replace(loadTextContent('policy.xml'), '{backend-id}', policyBackendId)
+// MI variant policy: same routing, plus a validate-azure-ad-token gate (tenant-scoped) because
+// this API requires no subscription key. {tenant-id} is substituted with the deployment tenant.
+var policyMiXml = replace(replace(loadTextContent('policy-mi.xml'), '{backend-id}', policyBackendId), '{tenant-id}', subscription().tenantId)
 
 // ------------------
 //    API MANAGEMENT
@@ -353,6 +361,98 @@ resource embeddingsOperation 'Microsoft.ApiManagement/service/apis/operations@20
   }
 }
 
+// ---------------------------------
+//    INFERENCE API (MANAGED IDENTITY)
+// ---------------------------------
+// Same load-balanced backend pool as the key-based inference API, but exposed on a separate
+// path with subscriptionRequired=false so Foundry's ApiManagement/AAD (managed-identity)
+// connection can authenticate with only an Entra token. The inbound policy validates that
+// token (tenant-scoped) before routing. The key-based `inference/openai` API is unchanged.
+
+resource inferenceMiApi 'Microsoft.ApiManagement/service/apis@2024-06-01-preview' = {
+  name: miInferenceAPIName
+  parent: apimService
+  properties: {
+    apiType: 'http'
+    description: 'Managed-identity variant of the inference API (Entra token auth, no subscription key).'
+    displayName: 'Inference API (Managed Identity)'
+    path: '${miInferenceAPIPath}/${endpointPath}'
+    protocols: [
+      'https'
+    ]
+    subscriptionKeyParameterNames: {
+      header: 'api-key'
+      query: 'api-key'
+    }
+    subscriptionRequired: false
+    type: 'http'
+  }
+}
+
+resource inferenceMiApiPolicy 'Microsoft.ApiManagement/service/apis/policies@2024-06-01-preview' = {
+  name: 'policy'
+  parent: inferenceMiApi
+  properties: {
+    format: 'rawxml'
+    value: policyMiXml
+  }
+  dependsOn: [
+    backendPool
+    inferenceBackend
+  ]
+}
+
+resource miChatCompletionsOperation 'Microsoft.ApiManagement/service/apis/operations@2024-06-01-preview' = {
+  name: 'chat-completions'
+  parent: inferenceMiApi
+  properties: {
+    displayName: 'Creates a completion for the chat message'
+    method: 'POST'
+    urlTemplate: '/deployments/{deployment-id}/chat/completions'
+    templateParameters: [
+      {
+        name: 'deployment-id'
+        required: true
+        type: 'string'
+      }
+    ]
+  }
+}
+
+resource miCompletionsOperation 'Microsoft.ApiManagement/service/apis/operations@2024-06-01-preview' = {
+  name: 'completions'
+  parent: inferenceMiApi
+  properties: {
+    displayName: 'Creates a completion for the provided prompt'
+    method: 'POST'
+    urlTemplate: '/deployments/{deployment-id}/completions'
+    templateParameters: [
+      {
+        name: 'deployment-id'
+        required: true
+        type: 'string'
+      }
+    ]
+  }
+}
+
+resource miEmbeddingsOperation 'Microsoft.ApiManagement/service/apis/operations@2024-06-01-preview' = {
+  name: 'embeddings'
+  parent: inferenceMiApi
+  properties: {
+    displayName: 'Creates an embedding vector representing the input text'
+    method: 'POST'
+    urlTemplate: '/deployments/{deployment-id}/embeddings'
+    templateParameters: [
+      {
+        name: 'deployment-id'
+        required: true
+        type: 'string'
+      }
+    ]
+  }
+}
+
 // ------------------
 //    MS LEARN MCP PASSTHROUGH API
 // ------------------
@@ -445,6 +545,7 @@ output apimServiceId string = apimService.id
 output apimServiceName string = apimService.name
 output apimResourceGatewayURL string = apimService.properties.gatewayUrl
 output inferenceAPIPath string = inferenceAPIPath
+output miInferenceAPIPath string = miInferenceAPIPath
 
 @description('Full URL of the MS Learn MCP server proxied through APIM. Use as the MCP client URL with the api-key header.')
 output mslearnMcpUrl string = '${apimService.properties.gatewayUrl}/learn-mcp/mcp'

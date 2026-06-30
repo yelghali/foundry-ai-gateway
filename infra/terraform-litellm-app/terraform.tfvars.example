@@ -1,0 +1,28 @@
+# App-only deploy on existing infra. Two ways to pass infra references:
+#
+# A) From the infra Terraform STATE (default): set infra_state_path. Everything
+#    below is read automatically — leave it commented out.
+#
+# B) WITHOUT the partner's state (env vars / explicit values): set
+#    infra_state_path = "" and provide the values below (or via TF_VAR_* env vars).
+
+subscription_id = "00000000-0000-0000-0000-000000000000"
+
+# --- Option A: read from infra state (default) -------------------------------
+infra_state_path = "../terraform-litellm/terraform.tfstate"
+
+# --- Option B: no state; provide infra references explicitly ------------------
+# infra_state_path             = ""
+# resource_group_name          = "rg-litellm-gateway"
+# location                     = "eastus2"
+# container_app_name           = "ca-litellm"
+# container_app_environment_id = "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.App/managedEnvironments/<env>"
+# identity_id                  = "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.ManagedIdentity/userAssignedIdentities/<id>"
+# identity_client_id           = "<client-guid>"
+# master_key_secret_uri        = "https://<kv>.vault.azure.net/secrets/litellm-master-key"
+# database_url_secret_uri      = "https://<kv>.vault.azure.net/secrets/database-url"
+# foundry_api_bases            = ["https://<f1>.openai.azure.com/", "https://<f2>.openai.azure.com/"]
+# api_version                  = "2024-10-21"
+# model_deployment_name        = "gpt-4.1"
+# public_model_name            = "gpt-4.1"
+# litellm_master_key           = "<only needed for test/key scripts>"

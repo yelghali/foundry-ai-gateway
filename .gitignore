@@ -45,3 +45,6 @@ proj-mi-conn.json
 src/test/proj-conn.json
 src/test/patch-body.json
 src/test/sc*.txt
+
+# Local, non-versioned working area (scratch decks, drafts, etc.)
+local/

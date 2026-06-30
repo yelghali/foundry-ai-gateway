@@ -44,6 +44,7 @@ Write-Host "Reading gateway details from existing deployments..." -ForegroundCol
 $mainOutputs = & $az deployment group show --name $MainDeploymentName --resource-group $ResourceGroup --query properties.outputs | ConvertFrom-Json
 $apimServiceName = $mainOutputs.apimServiceName.value
 $inferenceApiPath = "{0}/openai" -f $mainOutputs.inferenceAPIPath.value
+$miInferenceApiPath = "{0}/openai" -f $mainOutputs.miInferenceAPIPath.value
 if (-not $apimServiceName) { throw "Could not read apimServiceName from main deployment outputs." }
 
 # Enterprise Foundry account names -> resource IDs (grant each client account MI data-plane access).
@@ -106,6 +107,7 @@ Write-Host "Deploying Scenario 2 (native APIM) client Foundry..." -ForegroundCol
     --parameters `
         apimServiceName=$apimServiceName `
         inferenceApiPath=$inferenceApiPath `
+        miInferenceApiPath=$miInferenceApiPath `
         inferenceApiVersion=$inferenceApiVersion `
         dummyA2aUrl=$DummyA2aUrl `
     --output none
@@ -120,6 +122,7 @@ Write-Host "Deploying Scenario 3 (BYO LiteLLM) client Foundry..." -ForegroundCol
         litellmFqdn=$litellmFqdn `
         litellmMasterKey=$LitellmMasterKey `
         dummyA2aUrl=$DummyA2aUrl `
+        apimServiceName=$apimServiceName `
     --output none
 Remove-Item $paramsFile -ErrorAction SilentlyContinue
 
@@ -160,6 +163,10 @@ $config = [ordered]@{
     sc3McpLitellmUrl     = $mcpLitellmUrl
     sc3McpLitellmConnId  = $sc3Out.mcpLitellmConnectionId.value
     sc3A2aConnId         = $sc3Out.a2aDirectConnectionId.value
+    sc3McpApimUrl        = $mcpApimUrl
+    sc3McpApimConnId     = $sc3Out.mcpApimConnectionId.value
+    sc3A2aApimConnId     = $sc3Out.a2aApimConnectionId.value
+    a2aApimUrl           = $apimBase
 }
 $configPath = Join-Path $PSScriptRoot "scenario-outputs.json"
 $config | ConvertTo-Json -Depth 6 | Set-Content -Path $configPath -Encoding utf8

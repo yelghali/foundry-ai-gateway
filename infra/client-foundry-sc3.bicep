@@ -9,6 +9,8 @@
 //    - litellm-gateway     (ModelGateway) -> LiteLLM Container App   (model, BYO)
 //    - mslearn-mcp-litellm (CustomKeys)   -> {litellm}/mcp/          (tool, same gateway)
 //    - dummy-a2a-direct    (RemoteA2A)    -> the A2A agent host root (agent)
+//    - mslearn-mcp-apim    (CustomKeys)   -> {apim}/learn-mcp/mcp    (tool, through APIM)
+//    - dummy-a2a-apim      (RemoteA2A)    -> APIM host root card     (agent, through APIM)
 //  plus one small native gpt-4o-mini "driver" used to orchestrate the A2A leg.
 // =====================================================================================
 
@@ -34,6 +36,15 @@ param litellmMcpPath string = 'mcp/'
 @description('Host root of the remote A2A agent (serves /.well-known/agent-card.json).')
 param dummyA2aUrl string
 
+@description('Existing APIM service name (main.bicep output apimServiceName) used for the through-APIM tool and A2A connections.')
+param apimServiceName string
+
+@description('Existing APIM subscription whose key the through-APIM connections present.')
+param apimSubscriptionName string = 'subscription1'
+
+@description('Path to the MS Learn MCP passthrough API in APIM.')
+param learnMcpApiPath string = 'learn-mcp/mcp'
+
 @description('Resource IDs of the enterprise Foundry accounts to grant this account MI data-plane access to.')
 param enterpriseFoundryIds array = []
 
@@ -50,6 +61,17 @@ var modelsMetadata = '[{"name":"${modelName}","properties":{"model":{"name":"${m
 var litellmAuthConfig = '{"type":"api_key","name":"Authorization","format":"Bearer {api_key}"}'
 var litellmBaseUrl = 'https://${litellmFqdn}'
 var cognitiveServicesUserRoleId = 'a97b65f3-24c7-4388-baec-2e87135dc908'
+var apimMcpUrl = '${apimService.properties.gatewayUrl}/${learnMcpApiPath}'
+var apimHostRoot = apimService.properties.gatewayUrl
+
+resource apimService 'Microsoft.ApiManagement/service@2024-06-01-preview' existing = {
+  name: apimServiceName
+}
+
+resource apimSubscription 'Microsoft.ApiManagement/service/subscriptions@2024-06-01-preview' existing = {
+  parent: apimService
+  name: apimSubscriptionName
+}
 
 resource account 'Microsoft.CognitiveServices/accounts@2025-06-01' = {
   name: accountName
@@ -149,6 +171,43 @@ resource a2aDirectConnection 'Microsoft.CognitiveServices/accounts/connections@2
   }
 }
 
+// TOOL (through APIM): MS Learn MCP behind APIM (api-key header). Same gateway pattern as
+// Scenario 2 — lets Scenario 3 also exercise the tool leg through APIM, not only LiteLLM.
+resource mcpApimConnection 'Microsoft.CognitiveServices/accounts/connections@2025-04-01-preview' = {
+  parent: account
+  name: 'mslearn-mcp-apim'
+  properties: {
+    category: 'CustomKeys'
+    target: apimMcpUrl
+    authType: 'CustomKeys'
+    credentials: {
+      keys: {
+        'api-key': apimSubscription.listSecrets().primaryKey
+      }
+    }
+    metadata: {}
+  }
+}
+
+// AGENT (through APIM): remote A2A specialist reached via APIM. Target is the APIM host root
+// so the RemoteA2A resolver finds the root card API (/.well-known/agent-card.json), whose
+// advertised message url is rewritten to {apim}/dummy-a2a-apim (deployed by a2a-apim.bicep).
+resource a2aApimConnection 'Microsoft.CognitiveServices/accounts/connections@2025-04-01-preview' = {
+  parent: account
+  name: 'dummy-a2a-apim'
+  properties: {
+    category: 'RemoteA2A'
+    target: apimHostRoot
+    authType: 'CustomKeys'
+    credentials: {
+      keys: {
+        'api-key': apimSubscription.listSecrets().primaryKey
+      }
+    }
+    metadata: {}
+  }
+}
+
 // Grant the account's managed identity data-plane access to the enterprise Foundry accounts.
 resource enterpriseFoundry 'Microsoft.CognitiveServices/accounts@2025-06-01' existing = [for id in enterpriseFoundryIds: {
   name: last(split(id, '/'))
@@ -170,3 +229,7 @@ output driverModelDeploymentName string = driverModelDeployment.name
 output litellmModelDeploymentName string = 'litellm-gateway/${modelName}'
 output mcpLitellmConnectionId string = mcpLitellmConnection.id
 output a2aDirectConnectionId string = a2aDirectConnection.id
+output mcpApimConnectionId string = mcpApimConnection.id
+output a2aApimConnectionId string = a2aApimConnection.id
+output apimGatewayUrl string = apimHostRoot
+output apimMcpUrl string = apimMcpUrl
