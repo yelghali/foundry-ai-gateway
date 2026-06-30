@@ -1,18 +1,33 @@
-# App-only deploy on existing infra. Two ways to pass infra references:
+# App-only deploy on existing infra. Choose ONE way to reference the infra
+# (set infra_state_backend accordingly):
 #
-# A) From the infra Terraform STATE (default): set infra_state_path. Everything
-#    below is read automatically — leave it commented out.
+# A) LOCAL state file (default): infra_state_backend = "local" + infra_state_path.
+#    Everything below is read automatically — leave it commented out.
 #
-# B) WITHOUT the partner's state (env vars / explicit values): set
-#    infra_state_path = "" and provide the values below (or via TF_VAR_* env vars).
+# B) REMOTE state in an Azure Storage blob: infra_state_backend = "azurerm" +
+#    infra_state_config (see the block below).
+#
+# C) NO state (env vars / explicit values): infra_state_backend = "none" and
+#    provide the values below (or via TF_VAR_* env vars).
 
 subscription_id = "00000000-0000-0000-0000-000000000000"
 
-# --- Option A: read from infra state (default) -------------------------------
-infra_state_path = "../terraform-litellm/terraform.tfstate"
+# --- Option A: read from a LOCAL infra state file (default) -------------------
+infra_state_backend = "local"
+infra_state_path    = "../terraform-litellm/terraform.tfstate"
 
-# --- Option B: no state; provide infra references explicitly ------------------
-# infra_state_path             = ""
+# --- Option B: read from REMOTE infra state (Azure Storage blob) --------------
+# infra_state_backend = "azurerm"
+# infra_state_config = {
+#   resource_group_name  = "rg-tfstate"
+#   storage_account_name = "sttfstate12345"
+#   container_name       = "tfstate"
+#   key                  = "litellm-infra.tfstate"
+#   # use_azuread_auth   = "true"   # auth with your Entra login instead of a storage key
+# }
+
+# --- Option C: no state; provide infra references explicitly ------------------
+# infra_state_backend          = "none"
 # resource_group_name          = "rg-litellm-gateway"
 # location                     = "eastus2"
 # container_app_name           = "ca-litellm"

@@ -11,16 +11,39 @@ variable "subscription_id" {
 }
 
 ###############################################################################
-#  How to reference the existing infra
-#  Default: read the sibling terraform-litellm state file. For real partner infra,
-#  point infra_state_path at their state, OR switch the data source in main.tf to
-#  a remote backend / pass the infra values as variables.
+#  How to reference the existing infra — pick ONE of three sources:
+#
+#    infra_state_backend = "local"    -> read a local state file (infra_state_path)
+#    infra_state_backend = "azurerm"  -> read remote state in an Azure Storage
+#                                        blob   (infra_state_config)
+#    infra_state_backend = "none"     -> read NO state; supply the infra values
+#                                        explicitly via the variables below
+#                                        (tfvars or TF_VAR_* env vars)
+#
+#  Precedence inside the module: bootstrap-created -> infra state -> explicit var.
+#  (When bootstrap = true the infra state is ignored entirely.)
 ###############################################################################
 
+variable "infra_state_backend" {
+  description = "Where the infra Terraform state lives: 'local' (a state file on disk), 'azurerm' (remote state in an Azure Storage blob), or 'none' (no state — pass the infra references explicitly via the variables below / TF_VAR_* env vars)."
+  type        = string
+  default     = "local"
+  validation {
+    condition     = contains(["local", "azurerm", "none"], var.infra_state_backend)
+    error_message = "infra_state_backend must be one of: local, azurerm, none."
+  }
+}
+
 variable "infra_state_path" {
-  description = "Path to the infra Terraform state to read outputs from. Leave EMPTY to provide the infra references explicitly via the variables below (TF_VAR_* env vars or a tfvars file) — no access to the partner's state required."
+  description = "LOCAL backend only: path to the infra Terraform state file. Set to \"\" (or use infra_state_backend = \"none\") to skip reading state and provide the infra references explicitly."
   type        = string
   default     = "../terraform-litellm/terraform.tfstate"
+}
+
+variable "infra_state_config" {
+  description = "AZURERM (remote) backend only: config for the infra state blob, e.g. { resource_group_name = \"rg-tfstate\", storage_account_name = \"sttfstate\", container_name = \"tfstate\", key = \"litellm-infra.tfstate\" }. Add use_azuread_auth = \"true\" to authenticate with your Entra login instead of a storage key."
+  type        = map(string)
+  default     = {}
 }
 
 ###############################################################################
@@ -105,6 +128,64 @@ variable "litellm_master_key" {
   type        = string
   default     = ""
   sensitive   = true
+}
+
+###############################################################################
+#  BOOTSTRAP mode — deploy onto MINIMAL infra (only ACA env + PostgreSQL + Key
+#  Vault exist; no identity, no RBAC, no secrets yet). When bootstrap = true the
+#  module ALSO creates the managed identity, assigns roles (Cognitive Services
+#  User on the Foundries + Key Vault Secrets User on the vault), generates the
+#  master key, and writes the master key + DATABASE_URL secrets into the vault.
+#  Set infra_state_path = "" and provide the values below.
+###############################################################################
+
+variable "bootstrap" {
+  description = "Create identity + role assignments + Key Vault secrets on top of minimal infra (ACA env + Postgres + Key Vault)."
+  type        = bool
+  default     = false
+}
+
+variable "name_prefix" {
+  description = "Prefix for the created managed identity (bootstrap)."
+  type        = string
+  default     = "litellm"
+}
+
+variable "key_vault_name" {
+  description = "Name of the EXISTING Key Vault to write the master key + DATABASE_URL secrets into and grant the identity access (bootstrap)."
+  type        = string
+  default     = ""
+}
+
+variable "foundry_account_ids" {
+  description = "Resource IDs of the EXISTING Foundry (Cognitive Services) accounts to grant the identity 'Cognitive Services User' on (bootstrap)."
+  type        = list(string)
+  default     = []
+}
+
+variable "postgres_fqdn" {
+  description = "FQDN of the EXISTING PostgreSQL Flexible Server (bootstrap) — used to build DATABASE_URL."
+  type        = string
+  default     = ""
+}
+
+variable "pg_admin_login" {
+  description = "PostgreSQL admin login (bootstrap)."
+  type        = string
+  default     = "litellmadmin"
+}
+
+variable "pg_admin_password" {
+  description = "PostgreSQL admin password (bootstrap) — used to build DATABASE_URL."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "pg_database" {
+  description = "PostgreSQL database name for LiteLLM (bootstrap)."
+  type        = string
+  default     = "litellm"
 }
 
 ###############################################################################

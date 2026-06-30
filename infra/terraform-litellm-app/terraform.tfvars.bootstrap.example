@@ -1,0 +1,41 @@
+# BOOTSTRAP mode — deploy LiteLLM onto MINIMAL infra:
+#   only an ACA environment + PostgreSQL Flexible Server + Key Vault exist.
+#   No managed identity, no RBAC, no Key Vault secrets yet.
+#
+# This module then creates the identity, assigns roles (Cognitive Services User on
+# the Foundries + Key Vault Secrets User on the vault), generates the master key,
+# and writes the master key + DATABASE_URL secrets into the existing Key Vault.
+#
+# You (the deployer) need rights to create role assignments and to write Key Vault
+# secrets (the apply grants itself Key Vault Secrets Officer).
+
+subscription_id     = "00000000-0000-0000-0000-000000000000"
+infra_state_backend = "none" # bootstrap mode reads nothing from state
+bootstrap           = true
+
+# --- existing platform plumbing (you provide these) ---------------------------
+resource_group_name          = "rg-litellm"
+location                     = "eastus2"
+container_app_environment_id = "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.App/managedEnvironments/<env>"
+key_vault_name               = "<existing-key-vault-name>"
+container_app_name           = "ca-litellm"
+
+# --- PostgreSQL (used to build DATABASE_URL written into Key Vault) ------------
+postgres_fqdn     = "<server>.postgres.database.azure.com"
+pg_admin_login    = "litellmadmin"
+pg_admin_password = "<postgres-admin-password>"   # better: pass via TF_VAR_pg_admin_password
+pg_database       = "litellm"
+
+# --- Foundry backends to load balance (must already exist) --------------------
+# Account IDs are used to grant the identity 'Cognitive Services User'.
+foundry_account_ids = [
+  "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.CognitiveServices/accounts/<foundry1>",
+  "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.CognitiveServices/accounts/<foundry2>",
+]
+foundry_api_bases = [
+  "https://<foundry1>.openai.azure.com/",
+  "https://<foundry2>.openai.azure.com/",
+]
+model_deployment_name = "gpt-4.1"
+public_model_name     = "gpt-4.1"
+api_version           = "2024-10-21"
