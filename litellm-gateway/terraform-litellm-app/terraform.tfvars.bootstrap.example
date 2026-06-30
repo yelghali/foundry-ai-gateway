@@ -20,11 +20,23 @@ container_app_environment_id = "/subscriptions/<sub>/resourceGroups/<rg>/provide
 key_vault_name               = "<existing-key-vault-name>"
 container_app_name           = "ca-litellm"
 
-# --- PostgreSQL (used to build DATABASE_URL written into Key Vault) ------------
-postgres_fqdn     = "<server>.postgres.database.azure.com"
-pg_admin_login    = "litellmadmin"
-pg_admin_password = "<postgres-admin-password>"   # better: pass via TF_VAR_pg_admin_password
-pg_database       = "litellm"
+# --- PostgreSQL access (written into Key Vault as the `database-url` secret) ---
+# Provide ONE of the following:
+#
+#  (a) the full connection string — best for an EXISTING server with known creds:
+#        TF_VAR_database_url="postgresql://user:pass@host:5432/litellm?sslmode=require"
+#      (or set `database_url` here; prefer the env var so it stays out of files)
+#
+#  (b) the component vars below + the password. Supply the password as an env var
+#      TF_VAR_pg_admin_password, or pull it from the infra state:
+#        $env:TF_VAR_pg_admin_password = (terraform -chdir=../terraform-litellm output -raw postgres_admin_password)
+postgres_fqdn  = "<server>.postgres.database.azure.com"
+pg_admin_login = "litellmadmin"
+# pg_admin_password = "<postgres-admin-password>"   # better: TF_VAR_pg_admin_password
+pg_database = "litellm"
+# pg_port    = "5432"
+# pg_sslmode = "require"
+# database_url = "postgresql://user:pass@host:5432/litellm?sslmode=require"  # (a) overrides the above
 
 # --- Foundry backends to load balance (must already exist) --------------------
 # Account IDs are used to grant the identity 'Cognitive Services User'.

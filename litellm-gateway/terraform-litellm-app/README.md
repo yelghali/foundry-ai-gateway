@@ -252,5 +252,33 @@ terraform apply `
 
 You (the deployer) need rights to **create role assignments** (Owner / User Access Administrator on the relevant scopes) and to write Key Vault secrets. After apply, `terraform output -raw litellm_url` + `terraform output -raw litellm_master_key` give you the URL and key to log into `/ui`.
 
+### PostgreSQL access (the `database-url` secret)
+
+Bootstrap writes LiteLLM's `DATABASE_URL` into Key Vault. Because you may not know how the existing
+server is wired, there are three ways to supply it (pick one — secrets are best passed as **env
+vars** so they never land in a file):
+
+1. **Full connection string** — best when the server already exists with known credentials:
+   ```powershell
+   $env:TF_VAR_database_url = "postgresql://litellmadmin:<pass>@<server>.postgres.database.azure.com:5432/litellm?sslmode=require"
+   ```
+   If `database_url` is set, the `pg_*` component vars are ignored and it's written as-is.
+
+2. **Components + password env var** — build it from `pg_admin_login` / `postgres_fqdn` /
+   `pg_database` (+ optional `pg_port`, `pg_sslmode`) and pass just the password:
+   ```powershell
+   $env:TF_VAR_pg_admin_password = "<postgres-admin-password>"
+   ```
+
+3. **Pull the password from the infra state** — if the infra was created by the sibling
+   [../terraform-litellm](../terraform-litellm) module (it exposes a sensitive
+   `postgres_admin_password` output):
+   ```powershell
+   $env:TF_VAR_pg_admin_password = (terraform -chdir=../terraform-litellm output -raw postgres_admin_password)
+   ```
+
+If neither `database_url` nor `pg_admin_password` is provided, bootstrap fails fast with a clear
+precondition error instead of writing a broken connection string.
+
 > Bootstrap will **fail at apply** if the secrets (`litellm-master-key` / `database-url`) or the container app name already exist in the target Key Vault / environment — by design it expects a *clean* vault and a free app name. Point it at fresh infra (or remove the conflicting objects / pick a new `container_app_name`).
 

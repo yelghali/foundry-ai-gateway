@@ -96,9 +96,16 @@ resource "azurerm_key_vault_secret" "master_key" {
 resource "azurerm_key_vault_secret" "database_url" {
   count        = var.bootstrap ? 1 : 0
   name         = "database-url"
-  value        = "postgresql://${var.pg_admin_login}:${var.pg_admin_password}@${var.postgres_fqdn}:5432/${var.pg_database}?sslmode=require"
+  value        = local.bootstrap_database_url
   key_vault_id = data.azurerm_key_vault.existing[0].id
   depends_on   = [time_sleep.kv_rbac]
+
+  lifecycle {
+    precondition {
+      condition     = var.database_url != "" || var.pg_admin_password != ""
+      error_message = "Bootstrap needs PostgreSQL access. Provide EITHER var.database_url (the full connection string) OR var.pg_admin_password (combined with pg_admin_login / postgres_fqdn / pg_database). Supply via TF_VAR_database_url / TF_VAR_pg_admin_password env vars, or pull from the infra state, e.g. TF_VAR_pg_admin_password=$(terraform -chdir=../terraform-litellm output -raw postgres_admin_password)."
+    }
+  }
 }
 
 # RBAC (the identity's Cognitive Services User on the Foundries + Key Vault Secrets
@@ -116,6 +123,10 @@ locals {
   o = local.read_remote ? data.terraform_remote_state.infra_remote[0].outputs : (
     local.read_local ? data.terraform_remote_state.infra_local[0].outputs : null
   )
+
+  # Bootstrap PostgreSQL connection string: use the full override if given,
+  # otherwise build it from the component vars (password from TF_VAR / state).
+  bootstrap_database_url = var.database_url != "" ? var.database_url : "postgresql://${var.pg_admin_login}:${var.pg_admin_password}@${var.postgres_fqdn}:${var.pg_port}/${var.pg_database}?sslmode=${var.pg_sslmode}"
 
   # Resolution order per value: bootstrap-created -> infra state -> explicit var.
   rg                = var.bootstrap ? var.resource_group_name : (local.use_state ? local.o.resource_group_name : var.resource_group_name)

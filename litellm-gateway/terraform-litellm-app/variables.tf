@@ -170,13 +170,13 @@ variable "postgres_fqdn" {
 }
 
 variable "pg_admin_login" {
-  description = "PostgreSQL admin login (bootstrap)."
+  description = "PostgreSQL admin login (bootstrap) — used to build DATABASE_URL when database_url is not given."
   type        = string
   default     = "litellmadmin"
 }
 
 variable "pg_admin_password" {
-  description = "PostgreSQL admin password (bootstrap) — used to build DATABASE_URL."
+  description = "PostgreSQL admin password (bootstrap) — used to build DATABASE_URL when database_url is not given. Best supplied as an env var (TF_VAR_pg_admin_password) or pulled from the infra state output 'postgres_admin_password'. Ignored if database_url is set."
   type        = string
   default     = ""
   sensitive   = true
@@ -186,6 +186,25 @@ variable "pg_database" {
   description = "PostgreSQL database name for LiteLLM (bootstrap)."
   type        = string
   default     = "litellm"
+}
+
+variable "pg_port" {
+  description = "PostgreSQL port (bootstrap)."
+  type        = string
+  default     = "5432"
+}
+
+variable "pg_sslmode" {
+  description = "PostgreSQL sslmode for the connection string (bootstrap). Azure Flexible Server requires 'require'."
+  type        = string
+  default     = "require"
+}
+
+variable "database_url" {
+  description = "FULL PostgreSQL connection string for LiteLLM (bootstrap). If set, it is written to Key Vault as-is and the pg_* component vars are ignored. Use this when the existing server already has a known connection string / different credentials. Best supplied via env var TF_VAR_database_url (e.g. from `terraform -chdir=../terraform-litellm output -raw ...`) so the secret never lands in a file."
+  type        = string
+  default     = ""
+  sensitive   = true
 }
 
 ###############################################################################
