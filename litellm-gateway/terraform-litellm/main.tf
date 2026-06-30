@@ -67,9 +67,12 @@ resource "azurerm_resource_group" "this" {
 
 ###############################################################################
 #  User-assigned managed identity for the LiteLLM container
+#  Skipped when var.vanilla = true (then the APP module / bootstrap creates the
+#  identity + RBAC instead). See variables.tf and the app module's bootstrap.
 ###############################################################################
 
 resource "azurerm_user_assigned_identity" "litellm" {
+  count               = var.vanilla ? 0 : 1
   name                = "id-${var.name_prefix}-${local.suffix}"
   resource_group_name = local.rg_name
   location            = local.rg_location
@@ -117,11 +120,11 @@ resource "azurerm_cognitive_deployment" "gpt4" {
 
 # LiteLLM identity -> Cognitive Services User on each created Foundry (keyless).
 resource "azurerm_role_assignment" "uami_foundry_user" {
-  count = var.create_foundries ? length(var.foundry_regions) : 0
+  count = (var.create_foundries && !var.vanilla) ? length(var.foundry_regions) : 0
 
   scope                = azurerm_cognitive_account.foundry[count.index].id
   role_definition_name = "Cognitive Services User"
-  principal_id         = azurerm_user_assigned_identity.litellm.principal_id
+  principal_id         = azurerm_user_assigned_identity.litellm[0].principal_id
 }
 
 ###############################################################################
@@ -183,6 +186,7 @@ resource "azurerm_key_vault" "kv" {
 
 # Deployer can write secrets.
 resource "azurerm_role_assignment" "deployer_kv_officer" {
+  count                = var.vanilla ? 0 : 1
   scope                = azurerm_key_vault.kv.id
   role_definition_name = "Key Vault Secrets Officer"
   principal_id         = data.azurerm_client_config.current.object_id
@@ -190,18 +194,21 @@ resource "azurerm_role_assignment" "deployer_kv_officer" {
 
 # LiteLLM identity can read secrets (used by the ACA Key Vault secret references).
 resource "azurerm_role_assignment" "uami_kv_secrets_user" {
+  count                = var.vanilla ? 0 : 1
   scope                = azurerm_key_vault.kv.id
   role_definition_name = "Key Vault Secrets User"
-  principal_id         = azurerm_user_assigned_identity.litellm.principal_id
+  principal_id         = azurerm_user_assigned_identity.litellm[0].principal_id
 }
 
 # RBAC is eventually consistent; wait before writing secrets.
 resource "time_sleep" "kv_rbac" {
+  count           = var.vanilla ? 0 : 1
   depends_on      = [azurerm_role_assignment.deployer_kv_officer]
   create_duration = "30s"
 }
 
 resource "azurerm_key_vault_secret" "master_key" {
+  count        = var.vanilla ? 0 : 1
   name         = "litellm-master-key"
   value        = local.master_key
   key_vault_id = azurerm_key_vault.kv.id
@@ -209,6 +216,7 @@ resource "azurerm_key_vault_secret" "master_key" {
 }
 
 resource "azurerm_key_vault_secret" "database_url" {
+  count        = var.vanilla ? 0 : 1
   name         = "database-url"
   value        = local.database_url
   key_vault_id = azurerm_key_vault.kv.id
@@ -248,7 +256,7 @@ resource "azurerm_container_app_environment" "cae" {
 ###############################################################################
 
 resource "azurerm_container_app" "litellm" {
-  count                        = var.deploy_litellm_app ? 1 : 0
+  count                        = (var.deploy_litellm_app && !var.vanilla) ? 1 : 0
   name                         = "ca-${var.name_prefix}-${local.suffix}"
   resource_group_name          = local.rg_name
   container_app_environment_id = azurerm_container_app_environment.cae.id
@@ -257,20 +265,20 @@ resource "azurerm_container_app" "litellm" {
 
   identity {
     type         = "UserAssigned"
-    identity_ids = [azurerm_user_assigned_identity.litellm.id]
+    identity_ids = [one(azurerm_user_assigned_identity.litellm[*].id)]
   }
 
   # Key Vault-referenced secrets, read with the LiteLLM identity.
   secret {
     name                = "litellm-master-key"
-    identity            = azurerm_user_assigned_identity.litellm.id
-    key_vault_secret_id = azurerm_key_vault_secret.master_key.versionless_id
+    identity            = one(azurerm_user_assigned_identity.litellm[*].id)
+    key_vault_secret_id = one(azurerm_key_vault_secret.master_key[*].versionless_id)
   }
 
   secret {
     name                = "database-url"
-    identity            = azurerm_user_assigned_identity.litellm.id
-    key_vault_secret_id = azurerm_key_vault_secret.database_url.versionless_id
+    identity            = one(azurerm_user_assigned_identity.litellm[*].id)
+    key_vault_secret_id = one(azurerm_key_vault_secret.database_url[*].versionless_id)
   }
 
   # The LiteLLM config is delivered as a mounted file (matches the proven Bicep
@@ -325,7 +333,7 @@ resource "azurerm_container_app" "litellm" {
       }
       env {
         name  = "AZURE_CLIENT_ID"
-        value = azurerm_user_assigned_identity.litellm.client_id
+        value = one(azurerm_user_assigned_identity.litellm[*].client_id)
       }
       env {
         name  = "STORE_MODEL_IN_DB"

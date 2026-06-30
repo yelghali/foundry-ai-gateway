@@ -4,12 +4,12 @@
 
 output "litellm_url" {
   description = "Public HTTPS endpoint of the LiteLLM gateway (null when deploy_litellm_app = false)."
-  value       = var.deploy_litellm_app ? "https://${azurerm_container_app.litellm[0].ingress[0].fqdn}" : null
+  value       = length(azurerm_container_app.litellm) > 0 ? "https://${azurerm_container_app.litellm[0].ingress[0].fqdn}" : null
 }
 
 output "litellm_fqdn" {
   description = "FQDN of the LiteLLM Container App (null when deploy_litellm_app = false)."
-  value       = var.deploy_litellm_app ? azurerm_container_app.litellm[0].ingress[0].fqdn : null
+  value       = length(azurerm_container_app.litellm) > 0 ? azurerm_container_app.litellm[0].ingress[0].fqdn : null
 }
 
 output "litellm_master_key" {
@@ -48,13 +48,13 @@ output "container_app_environment_id" {
 }
 
 output "identity_id" {
-  description = "Resource id of the user-assigned managed identity for LiteLLM."
-  value       = azurerm_user_assigned_identity.litellm.id
+  description = "Resource id of the user-assigned managed identity for LiteLLM (null when vanilla = true — the app/bootstrap module creates it)."
+  value       = one(azurerm_user_assigned_identity.litellm[*].id)
 }
 
 output "identity_client_id" {
-  description = "Client id of the LiteLLM managed identity (AZURE_CLIENT_ID)."
-  value       = azurerm_user_assigned_identity.litellm.client_id
+  description = "Client id of the LiteLLM managed identity (AZURE_CLIENT_ID; null when vanilla = true)."
+  value       = one(azurerm_user_assigned_identity.litellm[*].client_id)
 }
 
 output "key_vault_name" {
@@ -63,13 +63,18 @@ output "key_vault_name" {
 }
 
 output "master_key_secret_uri" {
-  description = "Versionless Key Vault secret URI for the LiteLLM master key (for ACA keyvaultref)."
-  value       = azurerm_key_vault_secret.master_key.versionless_id
+  description = "Versionless Key Vault secret URI for the LiteLLM master key (null when vanilla = true)."
+  value       = one(azurerm_key_vault_secret.master_key[*].versionless_id)
 }
 
 output "database_url_secret_uri" {
-  description = "Versionless Key Vault secret URI for the PostgreSQL connection string (for ACA keyvaultref)."
-  value       = azurerm_key_vault_secret.database_url.versionless_id
+  description = "Versionless Key Vault secret URI for the PostgreSQL connection string (null when vanilla = true)."
+  value       = one(azurerm_key_vault_secret.database_url[*].versionless_id)
+}
+
+output "foundry_account_ids" {
+  description = "Resource ids of the two Foundry accounts (for bootstrap RBAC — Cognitive Services User)."
+  value       = var.create_foundries ? azurerm_cognitive_account.foundry[*].id : []
 }
 
 output "foundry_api_bases" {
@@ -95,4 +100,15 @@ output "litellm_image" {
 output "postgres_fqdn" {
   description = "PostgreSQL Flexible Server FQDN."
   value       = azurerm_postgresql_flexible_server.pg.fqdn
+}
+
+output "postgres_admin_login" {
+  description = "PostgreSQL administrator login."
+  value       = var.pg_admin_login
+}
+
+output "postgres_admin_password" {
+  description = "PostgreSQL administrator password (needed by the app/bootstrap module to build DATABASE_URL)."
+  value       = random_password.pg.result
+  sensitive   = true
 }

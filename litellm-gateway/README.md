@@ -32,6 +32,20 @@ Each module has its own README with full steps:
 > The app module reads the infra module's outputs from the **sibling** `../terraform-litellm`
 > state by default, so keeping these two folders side by side here "just works".
 
+## Who creates the managed identity + RBAC?
+
+The LiteLLM workload needs a **user-assigned managed identity** with `Cognitive Services User` on
+the Foundries and `Key Vault Secrets User` on the vault. Two patterns:
+
+| Pattern | Who creates identity + RBAC + secrets | How |
+| --- | --- | --- |
+| **All‑in‑one** | the **infra** module ([terraform-litellm](terraform-litellm)) | default |
+| **Vanilla hand‑off** | the **app** module ([terraform-litellm-app](terraform-litellm-app)) in `bootstrap` mode | infra deployed with `vanilla = true` (raw Foundries + Postgres + empty Key Vault + ACA env only) |
+
+The vanilla hand‑off matches a real org split: a platform team ships raw infra, and the app team
+brings its own workload identity + RBAC. This path is **validated end‑to‑end** (infra stripped to
+vanilla, then `bootstrap` recreated the identity/RBAC/secrets and deployed a working gateway).
+
 ## Quick start (whole stack)
 
 ```powershell

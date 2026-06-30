@@ -212,19 +212,22 @@ See [terraform.tfvars.example](terraform.tfvars.example) for the full list. The 
 
 ## Bootstrap mode — minimal / virgin infra (only ACA env + Postgres + Key Vault)
 
-Use this when **only the raw platform exists** and nothing else has been wired up:
+Use this when **only the raw platform exists** and nothing else has been wired up — i.e. the infra
+module was run with `vanilla = true`, or a partner handed you raw infra:
 
 - ✅ exists: an ACA **managed environment**, a **PostgreSQL** Flexible Server, an **(empty) Key Vault**, and the **Foundry accounts** (with a model deployment).
 - ❌ does **not** exist: managed identity, **no RBAC**, **no Key Vault secrets**.
 
 Set `bootstrap = true` (and `infra_state_backend = "none"`). The module then creates everything missing in addition to the container app:
 
-1. a **user-assigned managed identity** (`id-<name_prefix>-litellm`),
+1. a **user-assigned managed identity** (`id-<name_prefix>-litellm`) — **the identity is owned by THIS (app) module**, not the infra,
 2. role assignments: **Cognitive Services User** on each `foundry_account_ids` entry (keyless inference) + **Key Vault Secrets User** on the existing vault (so the app can read secrets),
 3. a generated **master key** + the **`DATABASE_URL`** connection string, written as `litellm-master-key` / `database-url` secrets into the **existing** Key Vault (the apply grants itself **Key Vault Secrets Officer** + waits 30s for RBAC to propagate),
-4. the **LiteLLM Container App**, using the new identity + KV-referenced secrets.
+4. the **LiteLLM Container App**, using the new identity + KV-referenced secrets. A second **60s wait** (`time_sleep.app_rbac`) lets the Foundry + Key Vault role assignments propagate before the first revision starts, so it doesn't fail to resolve the KV-referenced secrets or get 401s from the Foundries.
 
 > The LiteLLM **config stays an inline ACA Secret** (it carries no credentials — auth is keyless MI), so it is *not* moved into Key Vault.
+
+> ✅ **Validated end-to-end:** infra was stripped to vanilla (identity + RBAC + secrets removed), then this module in `bootstrap` mode recreated the identity, RBAC, and secrets and deployed the app — `/v1/models` returned `gpt-4.1` and chat succeeded across both Foundry backends.
 
 Required inputs (see [terraform.tfvars.bootstrap.example](terraform.tfvars.bootstrap.example)):
 

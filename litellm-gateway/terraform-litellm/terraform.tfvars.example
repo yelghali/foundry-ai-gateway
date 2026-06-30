@@ -38,6 +38,12 @@ pg_version     = "16"
 litellm_image = "ghcr.io/berriai/litellm:main-stable"
 api_version   = "2024-10-21"
 
+# --- Vanilla hand-off (optional) ----------------------------------------------
+# Set true to deploy RAW infra only (no managed identity, no RBAC, no Key Vault
+# secrets, no app) and let the ../terraform-litellm-app module's `bootstrap` mode
+# create the identity + RBAC + secrets + app. Implies deploy_litellm_app = false.
+# vanilla = true
+
 # --- Private networking (optional; simulate a locked-down env) -----------------
 # When true: a VNet is created, the ACA environment is integrated into it, the two
 # Foundries get private endpoints (public access OFF), and LiteLLM calls them over

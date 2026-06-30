@@ -101,6 +101,16 @@ resource "azurerm_key_vault_secret" "database_url" {
   depends_on   = [time_sleep.kv_rbac]
 }
 
+# RBAC (the identity's Cognitive Services User on the Foundries + Key Vault Secrets
+# User on the vault) is eventually consistent. Wait for it to propagate before the
+# container app starts, otherwise the first revision can fail to resolve the
+# Key Vault-referenced secrets or get 401s from the Foundries.
+resource "time_sleep" "app_rbac" {
+  count           = var.bootstrap ? 1 : 0
+  depends_on      = [azurerm_role_assignment.kv_user, azurerm_role_assignment.foundry]
+  create_duration = "60s"
+}
+
 locals {
   use_state = local.read_local || local.read_remote
   o = local.read_remote ? data.terraform_remote_state.infra_remote[0].outputs : (
@@ -242,6 +252,7 @@ resource "azurerm_container_app" "litellm" {
   # In bootstrap mode, ensure the identity's Key Vault access + the secrets exist
   # before the app starts (these lists are empty when bootstrap = false).
   depends_on = [
+    time_sleep.app_rbac,
     azurerm_role_assignment.kv_user,
     azurerm_role_assignment.foundry,
     azurerm_key_vault_secret.master_key,

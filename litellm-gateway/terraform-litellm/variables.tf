@@ -180,6 +180,12 @@ variable "deploy_litellm_app" {
   default     = true
 }
 
+variable "vanilla" {
+  description = "Produce VANILLA infra only: Foundries + PostgreSQL + (empty) Key Vault + ACA env + Log Analytics, but NO managed identity, NO role assignments, and NO Key Vault secrets. Use this to hand off raw infra and let the app module's `bootstrap` mode create the identity + RBAC + secrets. Implies the app is not deployed here."
+  type        = bool
+  default     = false
+}
+
 ###############################################################################
 #  Private networking (simulate a locked-down env)
 ###############################################################################

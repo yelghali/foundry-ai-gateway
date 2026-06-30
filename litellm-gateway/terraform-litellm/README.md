@@ -111,6 +111,23 @@ existing_foundry_api_bases = [
 ]
 ```
 
+## Vanilla infra (let the app module own the identity + RBAC)
+
+By default this module creates the **managed identity, the role assignments** (Cognitive
+Services User on the Foundries + Key Vault Secrets User on the vault) and the **Key Vault secrets**.
+Set `vanilla = true` to skip all of those and hand off **raw infra only** — Foundries +
+PostgreSQL + an *empty* Key Vault + ACA environment + Log Analytics:
+
+```hcl
+vanilla            = true   # no identity, no RBAC, no KV secrets, no app here
+deploy_litellm_app = false
+```
+
+The identity + RBAC + secrets are then created by the **app module in `bootstrap` mode**
+(see [../terraform-litellm-app](../terraform-litellm-app)). This mirrors a real hand-off where the
+platform team provisions vanilla infra and the app team wires up the workload identity themselves.
+The `identity_*` and `*_secret_uri` outputs are `null` while `vanilla = true`.
+
 Then grant the LiteLLM identity `Cognitive Services User` on each account (Terraform doesn't own them). Private endpoints are only created for Foundries this stack creates.
 
 ## Optional: register into Foundry Agent Service
