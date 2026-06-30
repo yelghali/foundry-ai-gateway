@@ -48,7 +48,7 @@ The LiteLLM **master key** and **PostgreSQL connection string** come from **Key 
 
 ### Step 2 — deploy the app
 ```powershell
-cd infra/terraform-litellm-app
+cd litellm-gateway/terraform-litellm-app
 ./deploy.ps1 -SubscriptionId <sub-id>     # terraform init + apply (app only)
 # or plain:  terraform init; terraform apply -var="subscription_id=<sub-id>"
 ```

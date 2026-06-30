@@ -94,7 +94,7 @@ ContainerAppConsoleLogs_CL
 ## Deploy
 
 ```powershell
-cd infra/terraform-litellm
+cd litellm-gateway/terraform-litellm
 Copy-Item terraform.tfvars.example terraform.tfvars   # edit subscription_id (+ enable_private_networking if wanted)
 ./deploy.ps1 -SubscriptionId <sub-id>                 # add -PlanOnly to preview
 ./test.ps1                                            # health + models + chat + LB burst
