@@ -1,79 +1,71 @@
-# LiteLLM on the Miroki DEV (ICM) environment — public quick‑test first
+# LiteLLM on Miroki DEV — from-scratch Terraform (public → private)
 
-The pristine export of the **existing** infra lives in [`../existing code/ICM-DEV`](../existing%20code/ICM-DEV)
-and is **never touched**. This folder references the bits it needs from that infra as **`data`
-sources** and only **creates new** resources — so there is **no Terraform state to import and no
-"already exists" conflict**.
+Creates the **full LiteLLM stack** in the existing subscription/RG and **plugs into the existing
+network + shared private DNS zones**. Deploy **public** to test, then flip **one variable** to lock
+it down. Intended for a **fresh** deploy (delete the old app resources first).
 
-## Do you get a conflict without TF state?
+## What it creates
 
-- **If existing resources were `resource` blocks** (as in the raw export) → **yes**: with no state,
-  `apply` tries to *create* them and fails with *already exists* (you'd have to `terraform import`
-  each one first).
-- **What this folder does instead** → the existing identity / Postgres / Log Analytics are
-  **`data` sources** ([data.tf](data.tf)). Terraform only **reads** them and **creates** the new
-  resources below. No import, no conflict, existing infra untouched. (Full `terraform import` is
-  still possible later if you want to *manage* the existing resources — see the bottom.)
+- User-assigned **managed identity** (keyless)
+- **2 × Azure OpenAI** Foundries + `gpt-4.1` (**DataZoneStandard**), France Central + Sweden Central,
+  identity granted **Cognitive Services User** on each
+- **PostgreSQL Flexible Server** — *always private* (VNet-injected into `snet-database` + the
+  `privatelink.postgres.database.azure.com` zone) + a `litellm` database
+- **Key Vault** (RBAC) + `litellm-master-key` / `litellm-salt-key` / `database-url`
+- **Log Analytics** + **Container Apps environment** (always VNet-integrated on `snet-appintegration`)
+- **LiteLLM Container App** (keyless MI, config mounted, `STORE_MODEL_IN_DB` configurable, port 4000)
 
-## What gets created (all in the same subscription, RG, region)
+## The one switch: `private`
 
-| File | Creates |
-| --- | --- |
-| [R-Foundry.tf](R-Foundry.tf) | 2 × Azure OpenAI accounts + `gpt-4.1` (**DataZoneStandard**) in **France Central** + **Sweden Central**, the existing identity's **Cognitive Services User** role on each. `public_network_access_enabled = true` for now (so the public test app can reach them); private endpoints are wired but **off** (`enable_private_endpoints = false`). |
-| [R-KeyVault.tf](R-KeyVault.tf) | Key Vault (RBAC) + `litellm-master-key` (always) + `litellm-salt-key` / `database-url` (only with DB), identity **Secrets User** + deployer **Secrets Officer** roles. |
-| [R-ContainerAppEnvironment.tf](R-ContainerAppEnvironment.tf) | A **NEW public** Container Apps env (`internal_load_balancer_enabled = false`). VNet‑integrated **only** if you give it a dedicated infra subnet (needed for DB access). |
-| [R-ContainerApp.tf](R-ContainerApp.tf) | A **NEW public** LiteLLM app on that env, using the **existing managed identity** (keyless to Foundry + KV), master key from KV, `STORE_MODEL_IN_DB=False`, ingress **4000**. |
-| [R-PostgreSQLDatabase.tf](R-PostgreSQLDatabase.tf) | A `litellm` DB on the existing server — **only** when `test_app_use_database = true`. |
+| | `private = false` (default, **test**) | `private = true` (**locked down**) |
+|---|---|---|
+| LiteLLM ingress | **public** | **internal** (VNet-private) |
+| Foundries | public network access | private endpoints (`snet-private-endpoints`) + `privatelink.openai`/`cognitiveservices` |
+| Key Vault | public (so this run can write secrets) | private endpoint (`privatelink.vaultcore`) — run Terraform **from inside the VNet** |
+| PostgreSQL | **private always** (reached via the VNet-integrated env) | private always |
+| ACA env | VNet-integrated, external LB | VNet-integrated, internal LB |
 
-> This is a **throwaway public test** (env + app named `…-test-…`). Delete it after testing; it
-> doesn't touch the existing private app.
+PostgreSQL is private in **both** modes because the ACA env is always VNet-integrated — so the
+public test already exercises the real private DB.
 
-## Quick public test (default — no VNet, no DB)
+## Existing infra it references (as IDs — defaults point at the real ones)
 
-The fastest path: public Foundries + public LiteLLM, **master‑key auth only** (no virtual‑key
-persistence, so no DB / VNet needed).
+- Subnets in `vnet-miroki-dev-frc-01`: `snet-appintegration` (ACA env), `snet-database` (Postgres),
+  `snet-private-endpoints` (PEs).
+- Shared private DNS zones in `rg-private-dns-zones-shd-frc-01` (connectivity sub): `postgres`,
+  `francecentral.azurecontainerapps.io` (given), plus `openai` / `cognitiveservices` / `vaultcore`
+  (defaults — must exist for `private = true`).
+
+## Deploy — public test
 
 ```powershell
+cd litellm-gateway\ICM-DEV
+az login
 terraform init
-terraform apply    # uses the defaults below
+terraform apply           # private = false by default
+```
+Then:
+```powershell
+$u = terraform output -raw litellm_url
+$k = terraform output -raw litellm_master_key
+curl "$u/v1/chat/completions" -H "Authorization: Bearer $k" -H "Content-Type: application/json" `
+  -d '{\"model\":\"gpt-4.1\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}'
 ```
 
-Defaults for this mode: `foundry_public_access = true`, `enable_private_endpoints = false`,
-`key_vault_public_access = true`, `test_app_use_database = false`.
-
-Then hit it directly (it's **public**):
-
-```bash
-URL=$(terraform output -raw litellm_url)
-KEY=$(terraform output -raw litellm_master_key)
-curl "$URL/v1/chat/completions" -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
-  -d '{"model":"gpt-4.1","messages":[{"role":"user","content":"hi"}]}'
-```
-
-This validates: public endpoint, keyless MI auth to the two Foundries, and load balancing.
-
-## Add DB persistence (virtual keys / budgets)
-
-Set `test_app_use_database = true`. LiteLLM then needs to reach the **private** Postgres, so the
-test env must be **VNet‑integrated** — provide a dedicated subnet delegated to
-`Microsoft.App/environments` (a **second** ACA env can't reuse the existing env's
-`snet-appintegration`):
+## Lock it down later
 
 ```powershell
-$env:TF_VAR_pg_admin_password = "<postgres admin password>"
-terraform apply `
-  -var="test_app_use_database=true" `
-  -var="test_env_infra_subnet_id=/subscriptions/ed0c2c14-.../subnets/<dedicated-aca-subnet>"
+terraform apply -var="private=true"
 ```
+(Requires the `openai`/`cognitiveservices`/`vaultcore` private DNS zones to exist and be linked to
+the VNet, and Terraform to run from inside the VNet so it can still write Key Vault secrets. Flipping
+the ACA env between external/internal recreates the env.)
 
-## Iterate to private (later)
+## Prerequisites / gotchas
 
-Flip `foundry_public_access = false` and `enable_private_endpoints = true`, set
-`private_endpoint_subnet_id` + the DNS‑zone vars, and run the app on the **existing private** env
-(or a VNet‑integrated internal env). See the variables for all toggles.
-
-## If you'd rather MANAGE the existing resources (import)
-
-The pristine `resource` blocks are in [`../existing code/ICM-DEV`](../existing%20code/ICM-DEV). To
-manage them with Terraform, copy them back, then `terraform import` each (or use `import {}`
-blocks) with its real resource id before `apply`. Not required for the quick test above.
+- `snet-appintegration` must be **free** (delete the old ACA env first) and delegated to
+  `Microsoft.App/environments`; `snet-database` delegated to `Microsoft.DBforPostgreSQL/flexibleServers`.
+- The deployer needs rights to **create role assignments** (Owner / User Access Administrator) and to
+  write the cross-subscription **private DNS** records (Postgres zone).
+- Names use a random suffix; override `name_suffix` if a global name (KV / Foundry subdomain) collides.
+- Image pulls from `ghcr.io` — push LiteLLM to an internal registry if egress is blocked.
