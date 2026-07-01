@@ -12,8 +12,11 @@ resource "azurerm_container_app_environment" "test" {
   resource_group_name        = var.resource_group_name
   log_analytics_workspace_id = data.azurerm_log_analytics_workspace.existing.id
 
-  # VNet-integrate only when a dedicated subnet (delegated to
-  # Microsoft.App/environments) is provided; otherwise a fully-managed public env.
+  # VNet-integrate when a dedicated subnet is provided (default: snet-private-endpoints)
+  # so the app can reach the PRIVATE Postgres. Ingress stays PUBLIC (external) because
+  # internal_load_balancer_enabled = false. The subnet must be delegated to
+  # Microsoft.App/environments (az network vnet subnet update ... --delegations
+  # Microsoft.App/environments) and be dedicated to this env.
   # NOTE (azurerm): internal_load_balancer_enabled can ONLY be set together with
   # infrastructure_subnet_id, so both are omitted (null) in the no-subnet case.
   infrastructure_subnet_id       = var.test_env_infra_subnet_id != "" ? var.test_env_infra_subnet_id : null

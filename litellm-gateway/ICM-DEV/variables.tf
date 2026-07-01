@@ -60,9 +60,9 @@ variable "test_app_name" {
 }
 
 variable "test_env_infra_subnet_id" {
-  description = "Optional: a DEDICATED subnet (delegated to Microsoft.App/environments) in vnet-miroki-dev-frc-01 to VNet-integrate the test env. Required ONLY if test_app_use_database = true (to reach the private Postgres). Leave \"\" for a fully public test with no VNet (Microsoft-managed)."
+  description = "DEDICATED subnet (delegated to Microsoft.App/environments) to VNet-integrate the test env so it can reach the private Postgres. NOTE: a 2nd ACA env CANNOT reuse the existing env's snet-appintegration, so this defaults to the empty snet-private-endpoints (delegate it to Microsoft.App/environments first; while delegated it can't host private endpoints). Set to \"\" for a fully public test with NO VNet / NO DB."
   type        = string
-  default     = ""
+  default     = "/subscriptions/ed0c2c14-ba08-41b3-9cab-561f55ee40b4/resourceGroups/rg-miroki-network-dev-frc-01/providers/Microsoft.Network/virtualNetworks/vnet-miroki-dev-frc-01/subnets/snet-private-endpoints"
 }
 
 variable "test_app_use_database" {
