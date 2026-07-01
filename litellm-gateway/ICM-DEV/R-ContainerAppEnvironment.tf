@@ -6,16 +6,18 @@
 ###############################################################################
 
 resource "azurerm_container_app_environment" "test" {
-  provider                       = azurerm.miroki-dev
-  name                           = var.test_env_name
-  location                       = var.location
-  resource_group_name            = var.resource_group_name
-  log_analytics_workspace_id     = data.azurerm_log_analytics_workspace.existing.id
-  internal_load_balancer_enabled = false
+  provider                   = azurerm.miroki-dev
+  name                       = var.test_env_name
+  location                   = var.location
+  resource_group_name        = var.resource_group_name
+  log_analytics_workspace_id = data.azurerm_log_analytics_workspace.existing.id
 
   # VNet-integrate only when a dedicated subnet (delegated to
   # Microsoft.App/environments) is provided; otherwise a fully-managed public env.
-  infrastructure_subnet_id = var.test_env_infra_subnet_id != "" ? var.test_env_infra_subnet_id : null
+  # NOTE (azurerm): internal_load_balancer_enabled can ONLY be set together with
+  # infrastructure_subnet_id, so both are omitted (null) in the no-subnet case.
+  infrastructure_subnet_id       = var.test_env_infra_subnet_id != "" ? var.test_env_infra_subnet_id : null
+  internal_load_balancer_enabled = var.test_env_infra_subnet_id != "" ? false : null
 
   workload_profile {
     name                  = "Consumption"
