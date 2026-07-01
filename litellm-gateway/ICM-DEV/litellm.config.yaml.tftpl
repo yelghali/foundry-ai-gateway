@@ -1,0 +1,31 @@
+model_list:
+  # Same public model name twice, once per regional Foundry backend, so the
+  # LiteLLM router load balances across them. Auth is keyless (managed identity):
+  # enable_azure_ad_token_refresh makes LiteLLM mint + refresh Entra tokens.
+  - model_name: ${public_model_name}
+    litellm_params:
+      model: azure/${deployment_name}
+      api_base: os.environ/FOUNDRY1_API_BASE
+      api_version: os.environ/AZURE_API_VERSION
+    model_info:
+      mode: chat
+  - model_name: ${public_model_name}
+    litellm_params:
+      model: azure/${deployment_name}
+      api_base: os.environ/FOUNDRY2_API_BASE
+      api_version: os.environ/AZURE_API_VERSION
+    model_info:
+      mode: chat
+
+litellm_settings:
+  enable_azure_ad_token_refresh: true
+  # When true, the model config is persisted in / served from the DB (editable in
+  # the Admin UI at /ui). On a fresh DB the routable pool starts empty until you
+  # add the models (config models below are still the seed). When false, models
+  # are served straight from this file.
+  store_model_in_db: ${store_model_in_db}
+
+router_settings:
+  routing_strategy: simple-shuffle
+  num_retries: 2
+  cooldown_time: 30

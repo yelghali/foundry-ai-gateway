@@ -39,6 +39,9 @@ Thumbs.db
 # Misc temp
 gitstatus*.txt
 
+# Archives / large bundles (don't bloat the repo — push source, not zips)
+*.zip
+
 # Connection dumps & scenario run logs (may contain endpoint keys / tokens)
 proj-conn.json
 proj-mi-conn.json
