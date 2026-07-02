@@ -6,7 +6,7 @@ model_list:
       api_version: os.environ/AZURE_API_VERSION
     model_info:
       mode: chat
-  - model_name: ${public_model_name}
+  - model_name: ${secondary_model_name}
     litellm_params:
       model: azure/${deployment_name}
       api_base: os.environ/FOUNDRY2_API_BASE
@@ -29,6 +29,14 @@ router_settings:
   routing_strategy: simple-shuffle
   num_retries: 2
   cooldown_time: 30
+%{ if prefer_primary_region ~}
+  # Primary/fallback routing: FOUNDRY1 (the first foundry_regions entry, e.g.
+  # France Central) serves ALL traffic; requests fail over to FOUNDRY2 only on
+  # error / timeout / 429. This also keeps the primary warm (no cold-start
+  # latency from an idle region). Set prefer_primary_region = false to instead
+  # load-balance (simple-shuffle) evenly across both regions.
+  fallbacks: [{ "${public_model_name}": ["${secondary_model_name}"] }]
+%{ endif ~}
 %{ if redis_enabled ~}
   # Shared router state across replicas (cooldowns, rate-limits, usage) so load
   # balancing + 429 failover stay correct when running >1 LiteLLM replica.

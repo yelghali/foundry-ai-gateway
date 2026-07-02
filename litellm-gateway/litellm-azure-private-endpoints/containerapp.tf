@@ -120,6 +120,16 @@ resource "azurerm_container_app" "litellm" {
         value = "*"
       }
       env {
+        # Rolls a NEW ACA revision whenever the mounted LiteLLM config changes.
+        # Azure Container Apps does NOT restart/roll on a secret-value change
+        # alone, so without this a `terraform apply` that only edits the config
+        # (model_list, router fallbacks, etc.) would update the secret but the
+        # running replica would keep serving the OLD config until manually
+        # restarted. Hashing the config into an env var forces the roll.
+        name  = "LITELLM_CONFIG_SHA"
+        value = substr(sha256(local.litellm_config), 0, 16)
+      }
+      env {
         name        = "LITELLM_MASTER_KEY"
         secret_name = "litellm-master-key"
       }

@@ -167,8 +167,9 @@ variable "model_sku_name" {
 }
 
 variable "model_capacity" {
-  type    = number
-  default = 50
+  description = "Per-deployment capacity in thousands of tokens/min (TPM). DataZoneStandard gpt-5.1 quota (~300) is shared across the whole EU data zone, so with two deployments the max is ~150 each (150 + 150 = 300). Request a quota increase, run a single deployment, or switch model_sku_name to GlobalStandard (up to ~1000) for more. Apply fails if the total exceeds the data-zone quota."
+  type        = number
+  default     = 150
 }
 
 variable "public_model_name" {
@@ -180,6 +181,12 @@ variable "api_version" {
   description = "Azure OpenAI REST api-version LiteLLM uses (needs a recent one for gpt-5.x)."
   type        = string
   default     = "2025-04-01-preview"
+}
+
+variable "prefer_primary_region" {
+  description = "true = route ALL traffic to the PRIMARY Foundry (FOUNDRY1 = the first foundry_regions entry, e.g. France Central) and fail over to the second region only on error / timeout / 429. Lowers latency and keeps the primary warm (avoids idle-region cold starts). false = load-balance (simple-shuffle) evenly across both regions."
+  type        = bool
+  default     = true
 }
 
 ###############################################################################
