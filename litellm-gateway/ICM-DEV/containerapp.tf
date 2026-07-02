@@ -70,8 +70,8 @@ resource "azurerm_container_app" "litellm" {
   }
 
   template {
-    min_replicas = 1
-    max_replicas = 2
+    min_replicas = var.litellm_min_replicas
+    max_replicas = var.litellm_max_replicas
 
     container {
       name   = "litellm"

@@ -243,6 +243,18 @@ variable "litellm_target_port" {
   default = 4000
 }
 
+variable "litellm_min_replicas" {
+  description = "Minimum LiteLLM replicas. Keep 1 for a single authoritative in-memory router (correct load balancing + 429 failover + cooldown across the two Foundry deployments, no Redis needed)."
+  type        = number
+  default     = 1
+}
+
+variable "litellm_max_replicas" {
+  description = "Maximum LiteLLM replicas. Keep 1 (cost-effective, deterministic routing). Going above 1 gives each replica its OWN in-memory cooldown/rate-limit state, so for correct multi-replica load balancing you must also configure a shared Redis (router_settings.redis_*); on Azure that means Premium Azure Cache for Redis for a private endpoint."
+  type        = number
+  default     = 1
+}
+
 variable "store_model_in_db" {
   description = "false (recommended): the two Foundry gpt-5.1 deployments come from the mounted config file (IaC source of truth) and stay routable across restarts; PostgreSQL still persists all operational state (virtual keys, teams, users, budgets, spend/usage) so nothing is lost on restart. true: LiteLLM serves models ONLY from the DB and IGNORES the config model_list, so on a fresh DB /chat/completions returns 'no healthy deployments' until models are added via the Admin UI/API — only use it if you manage models at runtime through the UI and seed the DB yourself."
   type        = bool
