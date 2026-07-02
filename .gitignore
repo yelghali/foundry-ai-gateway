@@ -42,6 +42,9 @@ gitstatus*.txt
 # Archives / large bundles (don't bloat the repo — push source, not zips)
 *.zip
 
+# Reference copy of the customer's original exported code (not part of the product)
+litellm-gateway/existing code/
+
 # Connection dumps & scenario run logs (may contain endpoint keys / tokens)
 proj-conn.json
 proj-mi-conn.json

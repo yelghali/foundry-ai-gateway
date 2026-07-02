@@ -35,7 +35,7 @@ terraform apply `
 
 ## Wire the app to these zones
 
-In [../ICM-DEV](../ICM-DEV) set (the app never creates zones — it only consumes IDs):
+In [../litellm-azure-private-endpoints](../litellm-azure-private-endpoints) set (the app never creates zones — it only consumes IDs):
 
 ```hcl
 manage_pe_dns                          = true                 # attach zone groups by ID (Terraform writes the A-records)

@@ -1,9 +1,13 @@
 ###############################################################################
-#  LiteLLM on Miroki DEV — from-scratch module that plugs into the EXISTING
-#  network (subnets) and shared private DNS zones.
+#  LiteLLM on Azure (private endpoints) — from-scratch module that plugs into an
+#  EXISTING network (subnets) and pre-created private DNS zones.
 #
-#  Deploy PUBLIC first (private = false) to test, then flip `private = true`
+#  Deploy PUBLIC first (private_ingress = false) to test, then flip it to true
 #  to lock it down (internal ingress + private endpoints + private DNS).
+#
+#  Every default below is an EXAMPLE (the original Miroki DEV env). A partner
+#  overrides them all in a *.tfvars.json (subscription, RG, subnet IDs, and the
+#  private_dns_zone_id_* values that point at THEIR shared DNS zones).
 ###############################################################################
 
 variable "subscription_id" {
@@ -33,7 +37,7 @@ variable "name_prefix" {
 variable "name_suffix" {
   description = "Short suffix for globally-unique names (Key Vault, Foundry subdomains, etc.). Change if names collide."
   type        = string
-  default     = "icmdev"
+  default     = "dev"
 }
 
 variable "tags" {

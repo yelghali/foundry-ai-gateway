@@ -1,4 +1,4 @@
-# LiteLLM on Miroki DEV — from-scratch Terraform (private backends, public→private ingress)
+# LiteLLM on Azure with Private Endpoints — from-scratch Terraform (private backends, public→private ingress)
 
 Creates the **full LiteLLM stack** in the existing subscription/RG and **plugs into the existing
 network + shared private DNS zones**. **Postgres, Foundries and Key Vault are always PRIVATE**
@@ -20,6 +20,66 @@ Intended for a **fresh** deploy (delete the old app resources first).
 > group** owned by the platform/network team and deployed by the separate
 > [`../private-dns-zones`](../private-dns-zones/) module. This app only **consumes zone IDs** via the
 > `private_dns_zone_id_*` variables and (by default) writes its own PE A-records into them.
+
+## Partner adoption — plugging into YOUR network & DNS
+
+Everything the module *consumes* (network + DNS) is passed as a **variable** (an ID), so you never
+edit `.tf` code — you only supply a `*.tfvars.json`. The module *creates* the workload
+(identity, Foundries, Postgres, Key Vault, ACA env, the app) inside the RG you name.
+
+**Subnets — point at your existing ones (via vars):**
+
+| Variable | Your existing subnet |
+|---|---|
+| `aca_infrastructure_subnet_id` | subnet delegated to `Microsoft.App/environments` (the ACA env lives here) |
+| `private_endpoint_subnet_id` | subnet that holds the private endpoints (Foundry / Key Vault / Postgres) |
+
+**Existing DNS zones — reuse them, do NOT delete/recreate.** Point the module at your zones by ID:
+
+| Variable | Zone |
+|---|---|
+| `private_dns_zone_id_openai` | `privatelink.openai.azure.com` |
+| `private_dns_zone_id_cognitiveservices` | `privatelink.cognitiveservices.azure.com` |
+| `private_dns_zone_id_services_ai` | `privatelink.services.ai.azure.com` |
+| `private_dns_zone_id_vault` | `privatelink.vaultcore.azure.net` |
+| `private_dns_zone_id_postgres` | `privatelink.postgres.database.azure.com` |
+| `private_dns_zone_id_aca` | `privatelink.<region>.azurecontainerapps.io` |
+
+If you're **missing some** of these six zones (e.g. you already have `postgres` + `azurecontainerapps.io`
+but not the three Foundry zones or `vaultcore`), **don't delete anything** — just **create the
+missing ones** and link them to your VNet. The cleanest way is to run the sibling
+[`../private-dns-zones`](../private-dns-zones/) module, which is idempotent: `terraform import`
+the zones you already have (or list only the missing ones in its input) so it **adds** the gaps and
+**links** them all to your VNet, then feed its `zone_ids` output into the variables above. You can
+equally create the missing zones by hand / your own IaC — the module only needs the resulting IDs.
+
+Two ways the private-endpoint **A-records** get written into those zones:
+- **`manage_pe_dns = true`** (default) — Terraform attaches a DNS zone group to each PE and writes
+  the record itself (needs write access on the zones' RG).
+- **`manage_pe_dns = false`** — PEs are created *without* a zone group; your landing-zone **Azure
+  Policy (DINE)** registers the records. Use this when the network team owns DNS registration.
+
+Minimal partner `terraform.tfvars.json`:
+
+```jsonc
+{
+  "subscription_id": "<your-sub>",
+  "resource_group_name": "<your-app-rg>",
+  "location": "<your-region>",
+  "name_suffix": "<short-unique>",
+  "aca_infrastructure_subnet_id": "/subscriptions/.../subnets/<aca-subnet>",
+  "private_endpoint_subnet_id":  "/subscriptions/.../subnets/<pe-subnet>",
+  "private_dns_zone_id_openai":            "/subscriptions/.../privateDnsZones/privatelink.openai.azure.com",
+  "private_dns_zone_id_cognitiveservices": "/subscriptions/.../privateDnsZones/privatelink.cognitiveservices.azure.com",
+  "private_dns_zone_id_services_ai":       "/subscriptions/.../privateDnsZones/privatelink.services.ai.azure.com",
+  "private_dns_zone_id_vault":             "/subscriptions/.../privateDnsZones/privatelink.vaultcore.azure.net",
+  "private_dns_zone_id_postgres":          "/subscriptions/.../privateDnsZones/privatelink.postgres.database.azure.com",
+  "private_dns_zone_id_aca":               "/subscriptions/.../privateDnsZones/privatelink.<region>.azurecontainerapps.io"
+}
+```
+
+> The `default` values in [variables.tf](variables.tf) are just the original example env — every one
+> is meant to be overridden by your tfvars.
 
 ## Networking model
 
@@ -77,7 +137,7 @@ their resource IDs into this app via the matching variables:
 ## Deploy — public ingress test (private backends)
 
 ```powershell
-cd litellm-gateway\ICM-DEV
+cd litellm-gateway\litellm-azure-private-endpoints
 az login
 terraform init
 terraform apply           # private_ingress = false by default
