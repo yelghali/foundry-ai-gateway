@@ -45,6 +45,11 @@ gitstatus*.txt
 # Reference copy of the customer's original exported code (not part of the product)
 litellm-gateway/existing code/
 
+# Superseded LiteLLM modules (replaced by litellm-azure-private-endpoints + private-dns-zones).
+# Kept locally (they still hold live Terraform state) but not part of the repo.
+litellm-gateway/terraform-litellm/
+litellm-gateway/terraform-litellm-app/
+
 # Connection dumps & scenario run logs (may contain endpoint keys / tokens)
 proj-conn.json
 proj-mi-conn.json
