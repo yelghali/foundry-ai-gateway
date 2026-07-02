@@ -1,7 +1,8 @@
 ###############################################################################
 #  Container Apps environment — ALWAYS VNet-integrated (snet-appintegration) so
-#  it can reach the private Postgres. Ingress is PUBLIC when private = false
-#  (internal_load_balancer_enabled = false) and PRIVATE when private = true.
+#  it can reach the private-endpoint Foundries / Key Vault / PostgreSQL.
+#  private_ingress = false -> PUBLIC (external) ingress for testing.
+#  private_ingress = true  -> INTERNAL (VNet-private) ingress.
 ###############################################################################
 
 resource "azurerm_container_app_environment" "cae" {
@@ -10,7 +11,7 @@ resource "azurerm_container_app_environment" "cae" {
   location                       = var.location
   log_analytics_workspace_id     = azurerm_log_analytics_workspace.logs.id
   infrastructure_subnet_id       = var.aca_infrastructure_subnet_id
-  internal_load_balancer_enabled = var.private
+  internal_load_balancer_enabled = var.private_ingress
   tags                           = var.tags
 
   workload_profile {

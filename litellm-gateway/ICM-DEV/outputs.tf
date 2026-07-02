@@ -1,10 +1,10 @@
-output "private_mode" {
-  description = "Whether the gateway is in locked-down private mode."
-  value       = var.private
+output "private_ingress" {
+  description = "Whether the LiteLLM ingress is internal (true) or public (false). Backends are always private."
+  value       = var.private_ingress
 }
 
 output "litellm_fqdn" {
-  description = "Gateway FQDN. PUBLIC when private = false; a VNet-private FQDN when private = true."
+  description = "Gateway FQDN. PUBLIC when private_ingress = false; a VNet-private FQDN when true."
   value       = azurerm_container_app.litellm.ingress[0].fqdn
 }
 

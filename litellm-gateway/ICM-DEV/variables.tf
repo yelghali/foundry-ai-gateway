@@ -46,13 +46,33 @@ variable "tags" {
 }
 
 ###############################################################################
-#  PUBLIC vs PRIVATE — the one switch
+#  Networking model
+#
+#  Postgres, Foundries and Key Vault are ALWAYS PRIVATE (private endpoints in
+#  snet-private-endpoints + private DNS). The ACA environment is ALWAYS
+#  VNet-integrated (snet-appintegration) so it can reach them.
+#
+#  The only switch is the LiteLLM INGRESS:
+#    private_ingress = false -> PUBLIC ingress (test the gateway from the internet)
+#    private_ingress = true  -> INTERNAL ingress (VNet-private; activate its PE later)
 ###############################################################################
 
-variable "private" {
-  description = "false = PUBLIC test (public LiteLLM ingress, public Foundries + Key Vault, no private endpoints). true = LOCKED DOWN (internal ingress, private Foundries/KV via private endpoints + private DNS). PostgreSQL is ALWAYS private (VNet-injected); the ACA env is always VNet-integrated so it reaches it in both modes."
+variable "private_ingress" {
+  description = "false = PUBLIC LiteLLM ingress for testing (backends still private). true = INTERNAL ingress (VNet-private)."
   type        = bool
   default     = false
+}
+
+variable "manage_pe_dns" {
+  description = "true = attach a private DNS zone group to each private endpoint using the zone IDs below (they MUST exist). false = create the private endpoints WITHOUT a DNS zone group and let your landing-zone DNS policy (DINE) register the records."
+  type        = bool
+  default     = true
+}
+
+variable "key_vault_allowed_ip" {
+  description = "Public IP allowed to reach the (otherwise private) Key Vault so THIS Terraform run can write the secrets. Leave \"\" to auto-detect the deployer's egress IP; set an explicit IP/CIDR if auto-detect is blocked; the app itself reads Key Vault over its private endpoint regardless."
+  type        = string
+  default     = ""
 }
 
 ###############################################################################
@@ -60,19 +80,13 @@ variable "private" {
 ###############################################################################
 
 variable "aca_infrastructure_subnet_id" {
-  description = "EXISTING subnet for the Container Apps environment (delegated to Microsoft.App/environments). Default: snet-appintegration."
+  description = "EXISTING subnet for the Container Apps environment (delegated to Microsoft.App/environments). The env is always VNet-integrated here. Default: snet-appintegration."
   type        = string
   default     = "/subscriptions/ed0c2c14-ba08-41b3-9cab-561f55ee40b4/resourceGroups/rg-miroki-network-dev-frc-01/providers/Microsoft.Network/virtualNetworks/vnet-miroki-dev-frc-01/subnets/snet-appintegration"
 }
 
-variable "postgres_delegated_subnet_id" {
-  description = "EXISTING subnet for the PostgreSQL Flexible Server (delegated to Microsoft.DBforPostgreSQL/flexibleServers). Default: snet-database."
-  type        = string
-  default     = "/subscriptions/ed0c2c14-ba08-41b3-9cab-561f55ee40b4/resourceGroups/rg-miroki-network-dev-frc-01/providers/Microsoft.Network/virtualNetworks/vnet-miroki-dev-frc-01/subnets/snet-database"
-}
-
 variable "private_endpoint_subnet_id" {
-  description = "EXISTING subnet for the Foundry/Key Vault private endpoints (used only when private = true). Default: snet-private-endpoints."
+  description = "EXISTING subnet for the Foundry / Key Vault / PostgreSQL private endpoints. Default: snet-private-endpoints."
   type        = string
   default     = "/subscriptions/ed0c2c14-ba08-41b3-9cab-561f55ee40b4/resourceGroups/rg-miroki-network-dev-frc-01/providers/Microsoft.Network/virtualNetworks/vnet-miroki-dev-frc-01/subnets/snet-private-endpoints"
 }
@@ -82,7 +96,7 @@ variable "private_endpoint_subnet_id" {
 ###############################################################################
 
 variable "private_dns_zone_id_postgres" {
-  description = "privatelink.postgres.database.azure.com (used for the Postgres VNet injection — always)."
+  description = "privatelink.postgres.database.azure.com (for the Postgres private endpoint when private = true)."
   type        = string
   default     = "/subscriptions/a97f4651-d442-4661-8da7-1c5a60b32331/resourceGroups/rg-private-dns-zones-shd-frc-01/providers/Microsoft.Network/privateDnsZones/privatelink.postgres.database.azure.com"
 }

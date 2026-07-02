@@ -1,7 +1,8 @@
 ###############################################################################
-#  PostgreSQL Flexible Server — ALWAYS private (VNet-injected into snet-database
-#  + shared private DNS zone). The VNet-integrated ACA env reaches it by FQDN in
-#  both public and private modes.
+#  PostgreSQL Flexible Server — ALWAYS PRIVATE.
+#  "Public access" networking mode with public access DISABLED + a PRIVATE
+#  ENDPOINT (Private Link) in snet-private-endpoints. No delegated subnet / VNet
+#  injection. The VNet-integrated ACA env reaches it over the private endpoint.
 ###############################################################################
 
 resource "azurerm_postgresql_flexible_server" "pg" {
@@ -13,8 +14,6 @@ resource "azurerm_postgresql_flexible_server" "pg" {
   administrator_password        = random_password.pg.result
   sku_name                      = var.pg_sku_name
   storage_mb                    = var.pg_storage_mb
-  delegated_subnet_id           = var.postgres_delegated_subnet_id
-  private_dns_zone_id           = var.private_dns_zone_id_postgres
   public_network_access_enabled = false
   tags                          = var.tags
 
@@ -32,4 +31,27 @@ resource "azurerm_postgresql_flexible_server_database" "litellm" {
   server_id = azurerm_postgresql_flexible_server.pg.id
   charset   = "UTF8"
   collation = "en_US.utf8"
+}
+
+resource "azurerm_private_endpoint" "pg" {
+  name                = "pe-${azurerm_postgresql_flexible_server.pg.name}"
+  location            = var.location
+  resource_group_name = var.resource_group_name
+  subnet_id           = var.private_endpoint_subnet_id
+  tags                = var.tags
+
+  private_service_connection {
+    name                           = "psc-${azurerm_postgresql_flexible_server.pg.name}"
+    private_connection_resource_id = azurerm_postgresql_flexible_server.pg.id
+    subresource_names              = ["postgresqlServer"]
+    is_manual_connection           = false
+  }
+
+  dynamic "private_dns_zone_group" {
+    for_each = var.manage_pe_dns ? [1] : []
+    content {
+      name                 = "default"
+      private_dns_zone_ids = [var.private_dns_zone_id_postgres]
+    }
+  }
 }

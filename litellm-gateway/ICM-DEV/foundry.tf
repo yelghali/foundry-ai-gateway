@@ -1,6 +1,6 @@
 ###############################################################################
-#  Azure OpenAI Foundries (2) + gpt-4.1 (DataZoneStandard) + keyless RBAC.
-#  Public when private = false; locked to private endpoints when private = true.
+#  Azure OpenAI Foundries (2) + gpt-5.1 (DataZoneStandard) + keyless RBAC.
+#  ALWAYS PRIVATE: public network access disabled + a private endpoint each.
 ###############################################################################
 
 resource "azurerm_cognitive_account" "foundry" {
@@ -12,7 +12,7 @@ resource "azurerm_cognitive_account" "foundry" {
   kind                          = "OpenAI"
   sku_name                      = "S0"
   custom_subdomain_name         = "aif-${var.name_prefix}-0${count.index + 1}-${local.suffix}"
-  public_network_access_enabled = !var.private
+  public_network_access_enabled = false
   tags                          = var.tags
 }
 
@@ -43,9 +43,9 @@ resource "azurerm_role_assignment" "identity_foundry_user" {
   principal_id         = azurerm_user_assigned_identity.litellm.principal_id
 }
 
-# Private endpoints (only when private = true).
+# Private endpoint per Foundry (always).
 resource "azurerm_private_endpoint" "foundry" {
-  count = var.private ? length(var.foundry_regions) : 0
+  count = length(var.foundry_regions)
 
   name                = "pe-${azurerm_cognitive_account.foundry[count.index].name}"
   location            = var.location
@@ -60,11 +60,14 @@ resource "azurerm_private_endpoint" "foundry" {
     is_manual_connection           = false
   }
 
-  private_dns_zone_group {
-    name = "default"
-    private_dns_zone_ids = [
-      var.private_dns_zone_id_openai,
-      var.private_dns_zone_id_cognitiveservices,
-    ]
+  dynamic "private_dns_zone_group" {
+    for_each = var.manage_pe_dns ? [1] : []
+    content {
+      name = "default"
+      private_dns_zone_ids = [
+        var.private_dns_zone_id_openai,
+        var.private_dns_zone_id_cognitiveservices,
+      ]
+    }
   }
 }

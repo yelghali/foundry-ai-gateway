@@ -1,7 +1,10 @@
 ###############################################################################
-#  Key Vault (RBAC) + LiteLLM secrets. Public when private = false so this run
-#  can write the secrets; private endpoint + network lockdown when private = true
-#  (then run Terraform from inside the VNet to write secrets).
+#  Key Vault (RBAC) + LiteLLM secrets. ALWAYS PRIVATE: "selected networks"
+#  (default Deny) + a private endpoint the app reads over. The deployer's IP is
+#  allow-listed so THIS run can write the secrets (public_network_access stays
+#  enabled only so the IP rule + AzureServices bypass apply; nothing else can
+#  reach it). To go fully private later, set public_network_access_enabled=false
+#  and run Terraform from inside the VNet.
 ###############################################################################
 
 resource "azurerm_key_vault" "kv" {
@@ -12,12 +15,13 @@ resource "azurerm_key_vault" "kv" {
   sku_name                      = "standard"
   rbac_authorization_enabled    = true
   purge_protection_enabled      = false
-  public_network_access_enabled = !var.private
+  public_network_access_enabled = true
   tags                          = var.tags
 
   network_acls {
-    default_action = var.private ? "Deny" : "Allow"
+    default_action = "Deny"
     bypass         = "AzureServices"
+    ip_rules       = local.kv_ip_rules
   }
 }
 
@@ -59,10 +63,8 @@ resource "azurerm_key_vault_secret" "database_url" {
   depends_on   = [time_sleep.kv_rbac]
 }
 
-# Private endpoint (only when private = true).
+# Private endpoint (always) — the app reads secrets over this.
 resource "azurerm_private_endpoint" "kv" {
-  count = var.private ? 1 : 0
-
   name                = "pe-${azurerm_key_vault.kv.name}"
   location            = var.location
   resource_group_name = var.resource_group_name
@@ -76,8 +78,11 @@ resource "azurerm_private_endpoint" "kv" {
     is_manual_connection           = false
   }
 
-  private_dns_zone_group {
-    name                 = "default"
-    private_dns_zone_ids = [var.private_dns_zone_id_vault]
+  dynamic "private_dns_zone_group" {
+    for_each = var.manage_pe_dns ? [1] : []
+    content {
+      name                 = "default"
+      private_dns_zone_ids = [var.private_dns_zone_id_vault]
+    }
   }
 }
