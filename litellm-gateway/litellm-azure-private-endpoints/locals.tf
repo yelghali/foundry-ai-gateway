@@ -62,19 +62,21 @@ locals {
   # PostgreSQL is always private; the VNet-integrated ACA env reaches it by FQDN.
   database_url = "postgresql://${var.pg_admin_login}:${random_password.pg.result}@${azurerm_postgresql_flexible_server.pg.fqdn}:5432/${var.pg_database}?sslmode=require"
 
-  # Router mode. When prefer_primary_region = true the second Foundry (FOUNDRY2)
-  # is registered under a distinct internal model name so it can be wired as a
-  # fallback target (primary = FOUNDRY1 only). When false, both share the public
-  # name and simple-shuffle load-balances across them.
-  secondary_model_name = var.prefer_primary_region ? "${var.public_model_name}-fallback" : var.public_model_name
+  # Router weighting for the single public model. When prefer_primary_region is
+  # true the primary Foundry (FOUNDRY1) gets primary_region_weight vs 1 for the
+  # secondary, so ~all traffic lands on the primary (keeps it warm) while the
+  # secondary still serves if the primary is cooled down by errors. When false,
+  # both get weight 1 (even load balancing).
+  primary_weight   = var.prefer_primary_region ? var.primary_region_weight : 1
+  secondary_weight = 1
 
   litellm_config = templatefile("${path.module}/litellm.config.yaml.tftpl", {
-    public_model_name     = var.public_model_name
-    secondary_model_name  = local.secondary_model_name
-    prefer_primary_region = var.prefer_primary_region
-    deployment_name       = var.model_deployment_name
-    store_model_in_db     = var.store_model_in_db
-    redis_enabled         = var.enable_redis
-    spend_logs_retention  = var.spend_logs_retention
+    public_model_name    = var.public_model_name
+    primary_weight       = local.primary_weight
+    secondary_weight     = local.secondary_weight
+    deployment_name      = var.model_deployment_name
+    store_model_in_db    = var.store_model_in_db
+    redis_enabled        = var.enable_redis
+    spend_logs_retention = var.spend_logs_retention
   })
 }

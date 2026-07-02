@@ -1,16 +1,22 @@
 model_list:
+  # ONE public model (${public_model_name}) backed by the two Foundry
+  # deployments. `weight` biases the load balancer: the primary region
+  # (FOUNDRY1) gets the bulk of traffic; the secondary still auto-covers when the
+  # primary is cooled down by errors/timeouts/429s.
   - model_name: ${public_model_name}
     litellm_params:
       model: azure/${deployment_name}
       api_base: os.environ/FOUNDRY1_API_BASE
       api_version: os.environ/AZURE_API_VERSION
+      weight: ${primary_weight}
     model_info:
       mode: chat
-  - model_name: ${secondary_model_name}
+  - model_name: ${public_model_name}
     litellm_params:
       model: azure/${deployment_name}
       api_base: os.environ/FOUNDRY2_API_BASE
       api_version: os.environ/AZURE_API_VERSION
+      weight: ${secondary_weight}
     model_info:
       mode: chat
 
@@ -29,14 +35,6 @@ router_settings:
   routing_strategy: simple-shuffle
   num_retries: 2
   cooldown_time: 30
-%{ if prefer_primary_region ~}
-  # Primary/fallback routing: FOUNDRY1 (the first foundry_regions entry, e.g.
-  # France Central) serves ALL traffic; requests fail over to FOUNDRY2 only on
-  # error / timeout / 429. This also keeps the primary warm (no cold-start
-  # latency from an idle region). Set prefer_primary_region = false to instead
-  # load-balance (simple-shuffle) evenly across both regions.
-  fallbacks: [{ "${public_model_name}": ["${secondary_model_name}"] }]
-%{ endif ~}
 %{ if redis_enabled ~}
   # Shared router state across replicas (cooldowns, rate-limits, usage) so load
   # balancing + 429 failover stay correct when running >1 LiteLLM replica.

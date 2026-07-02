@@ -184,9 +184,15 @@ variable "api_version" {
 }
 
 variable "prefer_primary_region" {
-  description = "true = route ALL traffic to the PRIMARY Foundry (FOUNDRY1 = the first foundry_regions entry, e.g. France Central) and fail over to the second region only on error / timeout / 429. Lowers latency and keeps the primary warm (avoids idle-region cold starts). false = load-balance (simple-shuffle) evenly across both regions."
+  description = "true = weight the PRIMARY Foundry (FOUNDRY1 = the first foundry_regions entry, e.g. France Central) so it serves ~all traffic (keeps it warm → lower latency, no idle-region cold starts), while the secondary still auto-covers if the primary is cooled down by errors/timeouts/429s. There is still only ONE public model (public_model_name). false = load-balance (simple-shuffle) evenly across both regions."
   type        = bool
   default     = true
+}
+
+variable "primary_region_weight" {
+  description = "How strongly to favour the primary Foundry when prefer_primary_region = true. It's the primary's load-balancer weight against 1 for the secondary (e.g. 99 ≈ ~99% of traffic to the primary). Ignored when prefer_primary_region = false."
+  type        = number
+  default     = 99
 }
 
 ###############################################################################
