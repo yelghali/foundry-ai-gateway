@@ -82,7 +82,7 @@ resource "azurerm_private_endpoint" "kv" {
     for_each = var.manage_pe_dns ? [1] : []
     content {
       name                 = "default"
-      private_dns_zone_ids = [var.private_dns_zone_id_vault]
+      private_dns_zone_ids = [local.vault_zone_id]
     }
   }
 }

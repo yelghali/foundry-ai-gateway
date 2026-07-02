@@ -34,17 +34,19 @@ switch is `private_ingress`.
 egress IP** (auto-detected, or set `key_vault_allowed_ip`) so it can write the secrets. The app reads
 them over the **private endpoint**. To go fully private later, run Terraform from inside the VNet.
 
-**Private DNS (`manage_pe_dns`, default `true`):** each private endpoint attaches a DNS zone group
-using the zone IDs below — **those zones must exist**. If your landing zone auto-registers PE DNS via
-policy (DINE), set `manage_pe_dns = false` and the endpoints are created without a zone group.
+**Private DNS:** the shared DNS RG only has `postgres` + `francecentral.azurecontainerapps.io`, so the
+module **creates the two missing zones** — `privatelink.openai.azure.com` (Foundries) and
+`privatelink.vaultcore.azure.net` (Key Vault) — in this RG and links them to the VNet
+(`create_private_dns_zones = true`, default). Set it `false` if you pre-create them or a landing-zone
+DNS policy (DINE) registers PE records (then also set `manage_pe_dns = false`).
 
 ## Existing infra it references (defaults point at the real ones)
 
 - Subnets in `vnet-miroki-dev-frc-01`: `snet-appintegration` (ACA env), `snet-private-endpoints`
   (all private endpoints).
 - Shared private DNS zones in `rg-private-dns-zones-shd-frc-01` (connectivity sub): `postgres` +
-  `francecentral.azurecontainerapps.io` (you confirmed these exist) and `openai` /
-  `cognitiveservices` / `vaultcore` (defaults — must exist, or use `manage_pe_dns = false`).
+  `francecentral.azurecontainerapps.io` (reused by ID). The `openai` + `vaultcore` zones are
+  **created by this module** and linked to the VNet (they don't exist in the shared RG).
 
 ## Deploy — public ingress test (private backends)
 
@@ -75,8 +77,7 @@ via `privatelink.francecentral.azurecontainerapps.io` from inside the VNet.)
 - `snet-appintegration` must be **free** (delete the old ACA env first) and delegated to
   `Microsoft.App/environments`.
 - The deployer needs rights to **create role assignments** (Owner / User Access Administrator), to
-  write the cross-subscription **private DNS** records (when `manage_pe_dns = true`), and its egress
-  IP must be able to reach Key Vault (or set `key_vault_allowed_ip`).
-- The `openai` / `cognitiveservices` / `vaultcore` private DNS zones must exist (or `manage_pe_dns = false`).
+  **create + link private DNS zones** to the VNet, and its egress IP must be able to reach Key Vault
+  (or set `key_vault_allowed_ip`).
 - Names use a random suffix; override `name_suffix` if a global name (KV / Foundry subdomain) collides.
 - Image pulls from `ghcr.io` — push LiteLLM to an internal registry if egress is blocked.

@@ -64,9 +64,21 @@ variable "private_ingress" {
 }
 
 variable "manage_pe_dns" {
-  description = "true = attach a private DNS zone group to each private endpoint using the zone IDs below (they MUST exist). false = create the private endpoints WITHOUT a DNS zone group and let your landing-zone DNS policy (DINE) register the records."
+  description = "true = attach a private DNS zone group to each private endpoint. false = create the private endpoints WITHOUT a DNS zone group and let your landing-zone DNS policy (DINE) register the records."
   type        = bool
   default     = true
+}
+
+variable "create_private_dns_zones" {
+  description = "Create the private DNS zones the shared RG is MISSING (privatelink.openai.azure.com for the Foundries, privatelink.vaultcore.azure.net for Key Vault) in THIS resource group and link them to the VNet. The postgres + azurecontainerapps zones already exist and are reused by ID. Set false if you pre-create them (then set the *_openai / *_vault zone-id vars) or if your DNS policy handles PE records (also set manage_pe_dns=false)."
+  type        = bool
+  default     = true
+}
+
+variable "vnet_id" {
+  description = "Resource ID of the VNet to link the created private DNS zones to."
+  type        = string
+  default     = "/subscriptions/ed0c2c14-ba08-41b3-9cab-561f55ee40b4/resourceGroups/rg-miroki-network-dev-frc-01/providers/Microsoft.Network/virtualNetworks/vnet-miroki-dev-frc-01"
 }
 
 variable "key_vault_allowed_ip" {

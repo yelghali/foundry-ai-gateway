@@ -63,11 +63,8 @@ resource "azurerm_private_endpoint" "foundry" {
   dynamic "private_dns_zone_group" {
     for_each = var.manage_pe_dns ? [1] : []
     content {
-      name = "default"
-      private_dns_zone_ids = [
-        var.private_dns_zone_id_openai,
-        var.private_dns_zone_id_cognitiveservices,
-      ]
+      name                 = "default"
+      private_dns_zone_ids = [local.openai_zone_id]
     }
   }
 }
