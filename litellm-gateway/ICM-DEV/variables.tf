@@ -238,7 +238,7 @@ variable "litellm_target_port" {
 }
 
 variable "store_model_in_db" {
-  description = "Persist the model config in the DB (editable in /ui). On a fresh DB the routable pool starts empty until models are added via the UI/API (the config file seeds them)."
+  description = "Persist the model config in the DB (editable in /ui). Keep false so the routable pool is driven by the config file (the two Foundry deployments). When true, LiteLLM serves models from the DB and the config-file deployments are not routable until added via the UI/API, which makes /chat/completions return 'no healthy deployments'."
   type        = bool
-  default     = true
+  default     = false
 }

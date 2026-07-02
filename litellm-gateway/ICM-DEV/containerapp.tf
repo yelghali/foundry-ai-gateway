@@ -143,5 +143,9 @@ resource "azurerm_container_app" "litellm" {
     azurerm_key_vault_secret.salt_key,
     azurerm_key_vault_secret.database_url,
     azurerm_postgresql_flexible_server_database.litellm,
+    # Ensure the Foundry private endpoints (and their DNS records) exist before
+    # the container starts, so LiteLLM's startup health check can reach the
+    # private Foundry accounts and does not cool the deployments down.
+    azurerm_private_endpoint.foundry,
   ]
 }
