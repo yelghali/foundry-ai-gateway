@@ -53,6 +53,10 @@ resource "azurerm_private_endpoint" "foundry" {
   subnet_id           = var.private_endpoint_subnet_id
   tags                = var.tags
 
+  # Wait until the model deployment finishes — creating the PE while the account
+  # still has an in-flight deployment fails with AccountProvisioningStateInvalid.
+  depends_on = [azurerm_cognitive_deployment.gpt]
+
   private_service_connection {
     name                           = "psc-${azurerm_cognitive_account.foundry[count.index].name}"
     private_connection_resource_id = azurerm_cognitive_account.foundry[count.index].id
