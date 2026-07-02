@@ -47,10 +47,15 @@ variable "tags" {
 
 locals {
   # The full set this workload needs. Add more via extra_zones.
+  # The three cognitiveservices/openai/services.ai zones are ALL required for an
+  # Azure AI Foundry (kind = AIServices) account private endpoint (subresource
+  # "account"), which exposes .openai.azure.com, .cognitiveservices.azure.com and
+  # .services.ai.azure.com FQDNs.
   default_zones = [
     "privatelink.postgres.database.azure.com",           # PostgreSQL Flexible Server
-    "privatelink.openai.azure.com",                      # Azure OpenAI
-    "privatelink.cognitiveservices.azure.com",           # Azure AI Services
+    "privatelink.openai.azure.com",                      # Foundry / Azure OpenAI data plane
+    "privatelink.cognitiveservices.azure.com",           # Foundry / Cognitive Services data plane
+    "privatelink.services.ai.azure.com",                 # Foundry (AI Services) data plane
     "privatelink.vaultcore.azure.net",                   # Key Vault
     "privatelink.${var.location}.azurecontainerapps.io", # Container Apps (internal env)
   ]

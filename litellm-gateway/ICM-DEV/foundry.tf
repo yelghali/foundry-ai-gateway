@@ -1,5 +1,7 @@
 ###############################################################################
-#  Azure OpenAI Foundries (2) + gpt-5.1 (DataZoneStandard) + keyless RBAC.
+#  Azure AI Foundry accounts (2) + gpt-5.1 (DataZoneStandard) + keyless RBAC.
+#  kind = "AIServices" is the Azure AI Foundry resource (superset of Azure
+#  OpenAI). Models (gpt-5.1) are deployed INSIDE each Foundry instance.
 #  ALWAYS PRIVATE: public network access disabled + a private endpoint each.
 ###############################################################################
 
@@ -9,7 +11,7 @@ resource "azurerm_cognitive_account" "foundry" {
   name                          = "aif-${var.name_prefix}-0${count.index + 1}-${local.suffix}"
   resource_group_name           = var.resource_group_name
   location                      = var.foundry_regions[count.index]
-  kind                          = "OpenAI"
+  kind                          = "AIServices"
   sku_name                      = "S0"
   custom_subdomain_name         = "aif-${var.name_prefix}-0${count.index + 1}-${local.suffix}"
   public_network_access_enabled = false
@@ -68,7 +70,7 @@ resource "azurerm_private_endpoint" "foundry" {
     for_each = var.manage_pe_dns ? [1] : []
     content {
       name                 = "default"
-      private_dns_zone_ids = [local.openai_zone_id]
+      private_dns_zone_ids = local.foundry_zone_ids
     }
   }
 }

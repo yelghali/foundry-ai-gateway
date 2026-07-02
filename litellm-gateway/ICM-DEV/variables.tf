@@ -70,9 +70,9 @@ variable "manage_pe_dns" {
 }
 
 variable "create_private_dns_zones" {
-  description = "Create the private DNS zones the shared RG is MISSING (privatelink.openai.azure.com for the Foundries, privatelink.vaultcore.azure.net for Key Vault) in THIS resource group and link them to the VNet. The postgres + azurecontainerapps zones already exist and are reused by ID. Set false if you pre-create them (then set the *_openai / *_vault zone-id vars) or if your DNS policy handles PE records (also set manage_pe_dns=false)."
+  description = "Dev/test escape hatch: create the Foundry (openai/cognitiveservices/services.ai) + Key Vault (vaultcore) private DNS zones IN THIS resource group and link them to the VNet. Default false: the zones are owned by the platform/DNS team (see the ../private-dns-zones module, one dedicated RG) and consumed here by ID via the private_dns_zone_id_* vars. Set true only for a self-contained standalone deployment."
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "vnet_id" {
@@ -129,6 +129,12 @@ variable "private_dns_zone_id_cognitiveservices" {
   description = "privatelink.cognitiveservices.azure.com (for the Foundry private endpoints when private = true)."
   type        = string
   default     = "/subscriptions/a97f4651-d442-4661-8da7-1c5a60b32331/resourceGroups/rg-private-dns-zones-shd-frc-01/providers/Microsoft.Network/privateDnsZones/privatelink.cognitiveservices.azure.com"
+}
+
+variable "private_dns_zone_id_services_ai" {
+  description = "privatelink.services.ai.azure.com (required for the Azure AI Foundry (AIServices) private endpoints when private = true)."
+  type        = string
+  default     = "/subscriptions/a97f4651-d442-4661-8da7-1c5a60b32331/resourceGroups/rg-private-dns-zones-shd-frc-01/providers/Microsoft.Network/privateDnsZones/privatelink.services.ai.azure.com"
 }
 
 variable "private_dns_zone_id_vault" {
@@ -238,7 +244,7 @@ variable "litellm_target_port" {
 }
 
 variable "store_model_in_db" {
-  description = "Persist the model config in the DB (editable in /ui). Keep false so the routable pool is driven by the config file (the two Foundry deployments). When true, LiteLLM serves models from the DB and the config-file deployments are not routable until added via the UI/API, which makes /chat/completions return 'no healthy deployments'."
+  description = "false (recommended): the two Foundry gpt-5.1 deployments come from the mounted config file (IaC source of truth) and stay routable across restarts; PostgreSQL still persists all operational state (virtual keys, teams, users, budgets, spend/usage) so nothing is lost on restart. true: LiteLLM serves models ONLY from the DB and IGNORES the config model_list, so on a fresh DB /chat/completions returns 'no healthy deployments' until models are added via the Admin UI/API — only use it if you manage models at runtime through the UI and seed the DB yourself."
   type        = bool
-  default     = false
+  default     = true
 }
