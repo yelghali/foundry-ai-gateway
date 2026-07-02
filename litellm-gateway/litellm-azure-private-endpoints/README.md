@@ -184,3 +184,41 @@ via `privatelink.francecentral.azurecontainerapps.io` from inside the VNet.)
 - **Retention:** set `spend_logs_retention` (e.g. `"30d"`, `"90d"`) to auto-purge the SpendLogs after
   a window (maps to LiteLLM's `maximum_spend_logs_retention_period`). Default `""` = no auto-purge.
   To disable usage logging entirely, that's a separate LiteLLM setting (`disable_spend_logs`).
+
+## Persistence — what survives a restart
+
+A container restart or a new revision comes back with the **same routable setup and all durable
+state**. Because `store_model_in_db = false`, the model list is always loaded from the mounted config
+file, so the gateway never depends on DB state to know its models.
+
+| What | Where it lives | Survives restart? |
+|---|---|---|
+| Model list, router weights, region priority, all `litellm_settings` | Mounted config file (ACA secret `litellm-config`) | ✅ Yes |
+| Virtual keys, teams, **budgets, spend/usage** | PostgreSQL | ✅ Yes (durable) |
+| Master key, salt key, database URL | Key Vault (referenced as secrets) | ✅ Yes |
+| In-memory cooldowns / rate-limit counters | Process memory only | ❌ Reset on restart (rebuild automatically — harmless) |
+
+> A **config change** rolls a new revision automatically (the container carries a `LITELLM_CONFIG_SHA`
+> env hash of the config, so ACA re-deploys when it changes). A **plain restart** re-mounts the exact
+> same config. So configuration is both persistent and correctly versioned.
+
+## Keep-warm (optional, off by default)
+
+`enable_keep_warm` (default **false**) turns on LiteLLM **background health checks**: every
+`health_check_interval` seconds (default 240) LiteLLM sends a small chat request to each Foundry
+deployment, keeping the backends warm so the **first request after an idle gap** is fast.
+
+- **Cost:** negligible — 2 deployments × ~360 pings/day ≈ well under **$0.50/month** at the default
+  interval. (It's a small request, not strictly one token — gpt-5.1 may emit a few tokens.)
+- **When to enable:** bursty / sporadic traffic where you care about the first call being snappy.
+- **When to leave off (default):** steady traffic keeps the backends warm on its own, and off keeps
+  usage/cost dashboards clean.
+- **What it does NOT do:** it can't prevent the brief cold start right after a **container restart**
+  (that's LiteLLM's own process startup, not the backend). It also was **not** the fix for the
+  earlier latency spikes — those were the container-Redis path (see `enable_redis`).
+
+```hcl
+enable_keep_warm      = true   # opt in
+health_check_interval = 240    # seconds between pings
+```
+

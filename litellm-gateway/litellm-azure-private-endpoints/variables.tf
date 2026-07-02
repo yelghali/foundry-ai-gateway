@@ -202,9 +202,9 @@ variable "primary_region_weight" {
 }
 
 variable "enable_keep_warm" {
-  description = "true = LiteLLM runs background health checks (a tiny chat request per deployment every health_check_interval seconds) to keep the Foundry backends warm and reduce cold-start latency spikes. Cheap. false = no keep-warm."
+  description = "false (default) = no keep-warm. true = LiteLLM runs background health checks (a small chat request per deployment every health_check_interval seconds) to keep the Foundry backends warm and shave the first-call-after-idle latency. Cheap (well under ~$0.50/month at the default interval). Not needed for steady traffic; enable only for bursty/sporadic traffic. It does NOT prevent the brief cold start after a container restart (that's LiteLLM's own startup)."
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "health_check_interval" {
