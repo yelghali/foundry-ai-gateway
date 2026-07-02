@@ -16,6 +16,11 @@ Intended for a **fresh** deploy (delete the old app resources first).
 - **Log Analytics** + **Container Apps environment** (**always VNet-integrated** on `snet-appintegration`)
 - **LiteLLM Container App** (keyless MI, config mounted, `STORE_MODEL_IN_DB` configurable, port 4000)
 
+> **This app never creates DNS zones.** All private DNS zones live in a **dedicated DNS resource
+> group** owned by the platform/network team and deployed by the separate
+> [`../private-dns-zones`](../private-dns-zones/) module. This app only **consumes zone IDs** via the
+> `private_dns_zone_id_*` variables and (by default) writes its own PE A-records into them.
+
 ## Networking model
 
 Everything the gateway depends on is **private and reached over the VNet**. The ACA environment is
@@ -25,7 +30,7 @@ switch is `private_ingress`.
 | Component | Networking |
 |---|---|
 | PostgreSQL | 🔒 always private (public access off + private endpoint in `snet-private-endpoints` + `privatelink.postgres`) |
-| Foundries | 🔒 always private (public access off + private endpoints + `privatelink.openai`/`cognitiveservices`) |
+| Foundries | 🔒 always private (public access off + private endpoints + `privatelink.openai`/`cognitiveservices`/`services.ai`) |
 | Key Vault | 🔒 always private (selected-networks + private endpoint + `privatelink.vaultcore`) |
 | ACA env | always VNet-integrated (`snet-appintegration`) |
 | **LiteLLM ingress** | `private_ingress = false` → **public** (test) · `private_ingress = true` → **internal** |
@@ -34,19 +39,40 @@ switch is `private_ingress`.
 egress IP** (auto-detected, or set `key_vault_allowed_ip`) so it can write the secrets. The app reads
 them over the **private endpoint**. To go fully private later, run Terraform from inside the VNet.
 
-**Private DNS:** the shared DNS RG only has `postgres` + `francecentral.azurecontainerapps.io`, so the
-module **creates the two missing zones** — `privatelink.openai.azure.com` (Foundries) and
-`privatelink.vaultcore.azure.net` (Key Vault) — in this RG and links them to the VNet
-(`create_private_dns_zones = true`, default). Set it `false` if you pre-create them or a landing-zone
-DNS policy (DINE) registers PE records (then also set `manage_pe_dns = false`).
+## Private DNS zones (owned by the platform, in a dedicated RG)
+
+The app requires **6 private DNS zones**, all pre-created in the **dedicated DNS resource group** by
+the [`../private-dns-zones`](../private-dns-zones/) module and **linked to the spoke VNet**. Pass
+their resource IDs into this app via the matching variables:
+
+| Private DNS zone | For | Variable |
+|---|---|---|
+| `privatelink.openai.azure.com` | Foundry (LiteLLM `api_base`) | `private_dns_zone_id_openai` |
+| `privatelink.cognitiveservices.azure.com` | Foundry (account endpoint) | `private_dns_zone_id_cognitiveservices` |
+| `privatelink.services.ai.azure.com` | Foundry (AIServices) | `private_dns_zone_id_services_ai` |
+| `privatelink.vaultcore.azure.net` | Key Vault | `private_dns_zone_id_vault` |
+| `privatelink.postgres.database.azure.com` | PostgreSQL Flexible Server | `private_dns_zone_id_postgres` |
+| `privatelink.francecentral.azurecontainerapps.io` | Container Apps env | `private_dns_zone_id_aca` |
+
+> The three Foundry zones are all required because the account is kind **AIServices**: the PE
+> `account` subresource registers records across `openai` + `cognitiveservices` + `services.ai`.
+
+### How PE A-records get written into those zones — two mechanisms
+
+1. **Via code (default, `manage_pe_dns = true`).** Each private endpoint gets a
+   `private_dns_zone_group` and **Terraform writes the A-record** straight into the platform zone.
+   Simple and self-contained; the deployer needs write access on the zones (or the zones' RG).
+2. **Via Azure Policy (`manage_pe_dns = false`).** The PEs are created **without** a DNS zone group;
+   a landing-zone **DINE policy** ("Deploy private DNS zone group for …") then registers the records
+   asynchronously. Use this when the network team owns record registration and the app identity
+   isn't granted write on the zones.
 
 ## Existing infra it references (defaults point at the real ones)
 
 - Subnets in `vnet-miroki-dev-frc-01`: `snet-appintegration` (ACA env), `snet-private-endpoints`
   (all private endpoints).
-- Shared private DNS zones in `rg-private-dns-zones-shd-frc-01` (connectivity sub): `postgres` +
-  `francecentral.azurecontainerapps.io` (reused by ID). The `openai` + `vaultcore` zones are
-  **created by this module** and linked to the VNet (they don't exist in the shared RG).
+- The **6 private DNS zones** above, pre-created by the platform in the dedicated DNS RG and linked
+  to the VNet — consumed here by ID (this app creates none of them).
 
 ## Deploy — public ingress test (private backends)
 
@@ -76,8 +102,25 @@ via `privatelink.francecentral.azurecontainerapps.io` from inside the VNet.)
 
 - `snet-appintegration` must be **free** (delete the old ACA env first) and delegated to
   `Microsoft.App/environments`.
-- The deployer needs rights to **create role assignments** (Owner / User Access Administrator), to
-  **create + link private DNS zones** to the VNet, and its egress IP must be able to reach Key Vault
-  (or set `key_vault_allowed_ip`).
+- The deployer needs rights to **create role assignments** (Owner / User Access Administrator), and
+  its egress IP must be able to reach Key Vault (or set `key_vault_allowed_ip`). With
+  `manage_pe_dns = true` it also needs write access on the platform DNS zones' RG.
+- The **6 private DNS zones must already exist** in the dedicated DNS RG (deploy
+  [`../private-dns-zones`](../private-dns-zones/) first) and be linked to the VNet.
 - Names use a random suffix; override `name_suffix` if a global name (KV / Foundry subdomain) collides.
 - Image pulls from `ghcr.io` — push LiteLLM to an internal registry if egress is blocked.
+
+## Logging, observability & data retention
+
+- **Logging:** container stdout/stderr and ACA system logs ship to the **Log Analytics** workspace
+  this module creates (30-day retention). **Application Insights is intentionally not included** —
+  LiteLLM isn't auto-instrumented for it, so it adds cost for little value here. Add it later only if
+  you wire LiteLLM's OpenTelemetry callbacks.
+- **Conversations are NOT stored by default.** LiteLLM does **not** persist prompt/response *content*.
+  It writes only **usage metadata** to the `LiteLLM_SpendLogs` table in PostgreSQL — model, token
+  counts, cost, virtual-key/team, and timestamp — used for budgets and spend reporting.
+- **Opt-in content logging:** storing actual prompts/responses requires explicitly enabling
+  `store_prompts_in_spend_logs` — left **off** here for privacy. Don't enable it unless required.
+- **Retention:** set `spend_logs_retention` (e.g. `"30d"`, `"90d"`) to auto-purge the SpendLogs after
+  a window (maps to LiteLLM's `maximum_spend_logs_retention_period`). Default `""` = no auto-purge.
+  To disable usage logging entirely, that's a separate LiteLLM setting (`disable_spend_logs`).

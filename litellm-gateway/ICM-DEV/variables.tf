@@ -64,21 +64,9 @@ variable "private_ingress" {
 }
 
 variable "manage_pe_dns" {
-  description = "true = attach a private DNS zone group to each private endpoint. false = create the private endpoints WITHOUT a DNS zone group and let your landing-zone DNS policy (DINE) register the records."
+  description = "true = attach a private DNS zone group to each private endpoint (Terraform writes the A record into the platform zone). false = create the private endpoints WITHOUT a DNS zone group and let your landing-zone DNS policy (DINE) register the records."
   type        = bool
   default     = true
-}
-
-variable "create_private_dns_zones" {
-  description = "Dev/test escape hatch: create the Foundry (openai/cognitiveservices/services.ai) + Key Vault (vaultcore) private DNS zones IN THIS resource group and link them to the VNet. Default false: the zones are owned by the platform/DNS team (see the ../private-dns-zones module, one dedicated RG) and consumed here by ID via the private_dns_zone_id_* vars. Set true only for a self-contained standalone deployment."
-  type        = bool
-  default     = false
-}
-
-variable "vnet_id" {
-  description = "Resource ID of the VNet to link the created private DNS zones to."
-  type        = string
-  default     = "/subscriptions/ed0c2c14-ba08-41b3-9cab-561f55ee40b4/resourceGroups/rg-miroki-network-dev-frc-01/providers/Microsoft.Network/virtualNetworks/vnet-miroki-dev-frc-01"
 }
 
 variable "key_vault_allowed_ip" {
@@ -290,4 +278,10 @@ variable "store_model_in_db" {
   description = "false (recommended): the two Foundry gpt-5.1 deployments come from the mounted config file (IaC source of truth) and stay routable across restarts; PostgreSQL still persists all operational state (virtual keys, teams, users, budgets, spend/usage) so nothing is lost on restart. true: LiteLLM serves models ONLY from the DB and IGNORES the config model_list, so on a fresh DB /chat/completions returns 'no healthy deployments' until models are added via the Admin UI/API — only use it if you manage models at runtime through the UI and seed the DB yourself."
   type        = bool
   default     = false
+}
+
+variable "spend_logs_retention" {
+  description = "Auto-purge window for the usage/spend logs LiteLLM writes to PostgreSQL (e.g. \"30d\", \"90d\"). \"\" = leave at LiteLLM's default (no auto-purge). Note: only request METADATA (model, tokens, cost, key/team, timestamp) is logged — NOT prompt/response content (content logging is opt-in via store_prompts_in_spend_logs)."
+  type        = string
+  default     = ""
 }

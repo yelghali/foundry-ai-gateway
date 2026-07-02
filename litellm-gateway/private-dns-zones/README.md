@@ -15,8 +15,12 @@ touch DNS at all.
 ## Zones created
 
 `privatelink.postgres.database.azure.com`, `privatelink.openai.azure.com`,
-`privatelink.cognitiveservices.azure.com`, `privatelink.vaultcore.azure.net`,
-`privatelink.<region>.azurecontainerapps.io` (+ anything in `extra_zones`).
+`privatelink.cognitiveservices.azure.com`, `privatelink.services.ai.azure.com`,
+`privatelink.vaultcore.azure.net`, `privatelink.<region>.azurecontainerapps.io`
+(+ anything in `extra_zones`).
+
+The three Foundry zones (`openai` + `cognitiveservices` + `services.ai`) are all needed because the
+account is kind **AIServices**: its private endpoint registers records across all three.
 
 ## Use
 
@@ -31,12 +35,11 @@ terraform apply `
 
 ## Wire the app to these zones
 
-In [../ICM-DEV](../ICM-DEV) set:
+In [../ICM-DEV](../ICM-DEV) set (the app never creates zones — it only consumes IDs):
 
 ```hcl
-create_private_dns_zones = false                 # don't let the app create zones
-manage_pe_dns            = true                   # attach zone groups by ID
-private_dns_zone_id_openai = "<zone_ids output>"  # etc. for vault / postgres
+manage_pe_dns                          = true                 # attach zone groups by ID (Terraform writes the A-records)
+private_dns_zone_id_openai             = "<zone_ids output>"  # + cognitiveservices / services_ai / vault / postgres / aca
 ```
 
 …or, if a DINE policy registers PE DNS for you, set `manage_pe_dns = false` in the app and skip the

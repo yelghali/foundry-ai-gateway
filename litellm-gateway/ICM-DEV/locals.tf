@@ -40,12 +40,13 @@ locals {
   kv_deployer_ip = var.key_vault_allowed_ip != "" ? var.key_vault_allowed_ip : (length(data.http.deployer_ip) > 0 ? chomp(data.http.deployer_ip[0].response_body) : "")
   kv_ip_rules    = local.kv_deployer_ip != "" ? [local.kv_deployer_ip] : []
 
-  # Private DNS zone IDs for the Foundry / Key Vault endpoints: use the ones we
-  # create (create_private_dns_zones = true) or the shared pre-existing IDs.
-  openai_zone_id            = var.create_private_dns_zones ? one(azurerm_private_dns_zone.openai[*].id) : var.private_dns_zone_id_openai
-  cognitiveservices_zone_id = var.create_private_dns_zones ? one(azurerm_private_dns_zone.cognitiveservices[*].id) : var.private_dns_zone_id_cognitiveservices
-  services_ai_zone_id       = var.create_private_dns_zones ? one(azurerm_private_dns_zone.services_ai[*].id) : var.private_dns_zone_id_services_ai
-  vault_zone_id             = var.create_private_dns_zones ? one(azurerm_private_dns_zone.vault[*].id) : var.private_dns_zone_id_vault
+  # Private DNS zone IDs are always CONSUMED BY ID from the platform-owned
+  # dedicated DNS resource group (see the ../private-dns-zones module). This app
+  # never creates DNS zones — it only deploys LiteLLM and its own dependencies.
+  openai_zone_id            = var.private_dns_zone_id_openai
+  cognitiveservices_zone_id = var.private_dns_zone_id_cognitiveservices
+  services_ai_zone_id       = var.private_dns_zone_id_services_ai
+  vault_zone_id             = var.private_dns_zone_id_vault
 
   # An Azure AI Foundry (AIServices) account private endpoint (subresource
   # "account") resolves over three FQDNs and needs all three zones.
@@ -62,9 +63,10 @@ locals {
   database_url = "postgresql://${var.pg_admin_login}:${random_password.pg.result}@${azurerm_postgresql_flexible_server.pg.fqdn}:5432/${var.pg_database}?sslmode=require"
 
   litellm_config = templatefile("${path.module}/litellm.config.yaml.tftpl", {
-    public_model_name = var.public_model_name
-    deployment_name   = var.model_deployment_name
-    store_model_in_db = var.store_model_in_db
-    redis_enabled     = var.enable_redis
+    public_model_name    = var.public_model_name
+    deployment_name      = var.model_deployment_name
+    store_model_in_db    = var.store_model_in_db
+    redis_enabled        = var.enable_redis
+    spend_logs_retention = var.spend_logs_retention
   })
 }

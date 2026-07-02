@@ -17,6 +17,13 @@ model_list:
 litellm_settings:
   enable_azure_ad_token_refresh: true
   store_model_in_db: ${store_model_in_db}
+%{ if spend_logs_retention != "" ~}
+
+general_settings:
+  # Auto-purge usage/spend logs from PostgreSQL after this window. Only request
+  # metadata is logged (no prompt/response content unless explicitly enabled).
+  maximum_spend_logs_retention_period: "${spend_logs_retention}"
+%{ endif ~}
 
 router_settings:
   routing_strategy: simple-shuffle
