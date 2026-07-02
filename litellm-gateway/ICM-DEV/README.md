@@ -7,7 +7,7 @@ it down. Intended for a **fresh** deploy (delete the old app resources first).
 ## What it creates
 
 - User-assigned **managed identity** (keyless)
-- **2 × Azure OpenAI** Foundries + `gpt-4.1` (**DataZoneStandard**), France Central + Sweden Central,
+- **2 × Azure OpenAI** Foundries + `gpt-5.1` (**DataZoneStandard**), France Central + Sweden Central,
   identity granted **Cognitive Services User** on each
 - **PostgreSQL Flexible Server** — *always private* (VNet-injected into `snet-database` + the
   `privatelink.postgres.database.azure.com` zone) + a `litellm` database
@@ -49,7 +49,7 @@ Then:
 $u = terraform output -raw litellm_url
 $k = terraform output -raw litellm_master_key
 curl "$u/v1/chat/completions" -H "Authorization: Bearer $k" -H "Content-Type: application/json" `
-  -d '{\"model\":\"gpt-4.1\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}'
+  -d '{\"model\":\"gpt-5.1\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}'
 ```
 
 ## Lock it down later

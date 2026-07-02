@@ -123,17 +123,17 @@ variable "foundry_regions" {
 
 variable "model_deployment_name" {
   type    = string
-  default = "gpt-4.1"
+  default = "gpt-5.1"
 }
 
 variable "model_name" {
   type    = string
-  default = "gpt-4.1"
+  default = "gpt-5.1"
 }
 
 variable "model_version" {
   type    = string
-  default = "2025-04-14"
+  default = "2025-11-13"
 }
 
 variable "model_sku_name" {
@@ -149,12 +149,13 @@ variable "model_capacity" {
 
 variable "public_model_name" {
   type    = string
-  default = "gpt-4.1"
+  default = "gpt-5.1"
 }
 
 variable "api_version" {
-  type    = string
-  default = "2024-10-21"
+  description = "Azure OpenAI REST api-version LiteLLM uses (needs a recent one for gpt-5.x)."
+  type        = string
+  default     = "2025-04-01-preview"
 }
 
 ###############################################################################
