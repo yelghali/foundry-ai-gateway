@@ -15,7 +15,33 @@ resource "azurerm_cognitive_account" "foundry" {
   sku_name                      = "S0"
   custom_subdomain_name         = "aif-${var.name_prefix}-0${count.index + 1}-${local.suffix}"
   public_network_access_enabled = false
-  tags                          = var.tags
+
+  # true = this is a Microsoft Foundry (v2) account: it supports projects and
+  # shows the new project-based Foundry portal experience (not the classic
+  # Cognitive Services view). Projects are created below.
+  project_management_enabled = var.enable_foundry_projects
+
+  # Foundry (v2) accounts use a managed identity (agents, connections, projects).
+  identity {
+    type = "SystemAssigned"
+  }
+
+  tags = var.tags
+}
+
+# A Foundry project per account (the "v2" project-based experience). Projects are
+# folders for organizing stateful work (agents, connections, evaluations); the
+# gpt-5.1 deployments below stay at the account level and are what LiteLLM calls.
+resource "azurerm_cognitive_account_project" "foundry" {
+  count = var.enable_foundry_projects ? length(var.foundry_regions) : 0
+
+  name                 = "proj-${var.name_prefix}-0${count.index + 1}-${local.suffix}"
+  cognitive_account_id = azurerm_cognitive_account.foundry[count.index].id
+  location             = var.foundry_regions[count.index]
+
+  identity {
+    type = "SystemAssigned"
+  }
 }
 
 resource "azurerm_cognitive_deployment" "gpt" {

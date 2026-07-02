@@ -71,12 +71,14 @@ locals {
   secondary_weight = 1
 
   litellm_config = templatefile("${path.module}/litellm.config.yaml.tftpl", {
-    public_model_name    = var.public_model_name
-    primary_weight       = local.primary_weight
-    secondary_weight     = local.secondary_weight
-    deployment_name      = var.model_deployment_name
-    store_model_in_db    = var.store_model_in_db
-    redis_enabled        = var.enable_redis
-    spend_logs_retention = var.spend_logs_retention
+    public_model_name     = var.public_model_name
+    primary_weight        = local.primary_weight
+    secondary_weight      = local.secondary_weight
+    deployment_name       = var.model_deployment_name
+    store_model_in_db     = var.store_model_in_db
+    redis_enabled         = var.enable_redis
+    spend_logs_retention  = var.spend_logs_retention
+    keep_warm             = var.enable_keep_warm
+    health_check_interval = var.health_check_interval
   })
 }

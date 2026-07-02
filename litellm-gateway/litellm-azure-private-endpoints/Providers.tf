@@ -2,8 +2,10 @@ terraform {
   required_version = ">= 1.5.0"
   required_providers {
     azurerm = {
-      source  = "hashicorp/azurerm"
-      version = "~> 4.14"
+      source = "hashicorp/azurerm"
+      # >= 4.42 for Microsoft Foundry (v2): azurerm_cognitive_account_project +
+      # cognitive_account.project_management_enabled.
+      version = ">= 4.42, < 5.0"
     }
     random = {
       source  = "hashicorp/random"

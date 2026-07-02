@@ -145,6 +145,12 @@ variable "foundry_regions" {
   default     = ["francecentral", "swedencentral"]
 }
 
+variable "enable_foundry_projects" {
+  description = "true = create Microsoft Foundry (v2) accounts with project management enabled + one project each (the new project-based Foundry portal experience). false = plain Cognitive Services (AIServices) accounts (classic view). Either way the gpt-5.1 deployments live at the account level and LiteLLM calls them the same way."
+  type        = bool
+  default     = true
+}
+
 variable "model_deployment_name" {
   type    = string
   default = "gpt-5.1"
@@ -193,6 +199,18 @@ variable "primary_region_weight" {
   description = "How strongly to favour the primary Foundry when prefer_primary_region = true. It's the primary's load-balancer weight against 1 for the secondary (e.g. 99 ≈ ~99% of traffic to the primary). Ignored when prefer_primary_region = false."
   type        = number
   default     = 99
+}
+
+variable "enable_keep_warm" {
+  description = "true = LiteLLM runs background health checks (a tiny chat request per deployment every health_check_interval seconds) to keep the Foundry backends warm and reduce cold-start latency spikes. Cheap. false = no keep-warm."
+  type        = bool
+  default     = true
+}
+
+variable "health_check_interval" {
+  description = "Seconds between keep-warm background health checks (only used when enable_keep_warm = true). Lower = warmer but slightly more requests; 240 (4 min) is a good cheap default."
+  type        = number
+  default     = 240
 }
 
 ###############################################################################
@@ -265,7 +283,7 @@ variable "litellm_max_replicas" {
 ###############################################################################
 
 variable "enable_redis" {
-  description = "Deploy a private Redis Container App and point LiteLLM's router at it so cooldown/rate-limit/usage state is SHARED across replicas. Enable this whenever litellm_max_replicas > 1."
+  description = "Deploy a private Redis Container App and point LiteLLM's router at it so cooldown/rate-limit/usage state is SHARED across replicas. Enable only when litellm_max_replicas > 1 AND you need cross-replica state. CAVEAT: the Redis-in-a-Container-App path (LiteLLM -> ACA internal TCP ingress -> Redis) periodically drops idle connections; LiteLLM's blocking reconnect stalls requests ~5s every ~10s (measured). For multi-replica in production prefer Azure Cache for Redis with a private endpoint instead. Default false = consistent ~0.6s latency, single-replica router state."
   type        = bool
   default     = false
 }

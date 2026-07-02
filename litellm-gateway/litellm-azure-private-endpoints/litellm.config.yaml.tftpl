@@ -23,6 +23,14 @@ model_list:
 litellm_settings:
   enable_azure_ad_token_refresh: true
   store_model_in_db: ${store_model_in_db}
+%{ if keep_warm ~}
+  # Keep-warm: LiteLLM periodically health-checks every deployment (a tiny chat
+  # request) in the background, which keeps the Azure Foundry backends warm and
+  # cuts the cold-start latency spikes. Cheap (one minimal call per deployment
+  # per interval). Set enable_keep_warm = false to disable.
+  background_health_checks: true
+  health_check_interval: ${health_check_interval}
+%{ endif ~}
 %{ if spend_logs_retention != "" ~}
 
 general_settings:
