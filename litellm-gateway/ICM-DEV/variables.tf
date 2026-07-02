@@ -250,9 +250,40 @@ variable "litellm_min_replicas" {
 }
 
 variable "litellm_max_replicas" {
-  description = "Maximum LiteLLM replicas. Keep 1 (cost-effective, deterministic routing). Going above 1 gives each replica its OWN in-memory cooldown/rate-limit state, so for correct multi-replica load balancing you must also configure a shared Redis (router_settings.redis_*); on Azure that means Premium Azure Cache for Redis for a private endpoint."
+  description = "Maximum LiteLLM replicas. Keep 1 (cost-effective, deterministic routing) unless you enable_redis. With enable_redis = true the replicas share cooldown/rate-limit state via the private Redis Container App, so you can safely scale to 3-4."
   type        = number
   default     = 1
+}
+
+###############################################################################
+#  Redis (shared LiteLLM router cache for multi-replica load balancing)
+###############################################################################
+
+variable "enable_redis" {
+  description = "Deploy a private Redis Container App and point LiteLLM's router at it so cooldown/rate-limit/usage state is SHARED across replicas. Enable this whenever litellm_max_replicas > 1."
+  type        = bool
+  default     = false
+}
+
+variable "redis_image" {
+  type    = string
+  default = "redis:7-alpine"
+}
+
+variable "redis_cpu" {
+  type    = number
+  default = 0.25
+}
+
+variable "redis_memory" {
+  type    = string
+  default = "0.5Gi"
+}
+
+variable "redis_maxmemory" {
+  description = "Redis maxmemory (with allkeys-lru eviction) — this is just an ephemeral routing cache."
+  type        = string
+  default     = "256mb"
 }
 
 variable "store_model_in_db" {

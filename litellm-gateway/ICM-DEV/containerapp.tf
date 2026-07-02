@@ -59,6 +59,14 @@ resource "azurerm_container_app" "litellm" {
     value = local.litellm_config
   }
 
+  dynamic "secret" {
+    for_each = var.enable_redis ? [1] : []
+    content {
+      name  = "redis-password"
+      value = random_password.redis[0].result
+    }
+  }
+
   ingress {
     external_enabled = true
     target_port      = var.litellm_target_port
@@ -124,6 +132,28 @@ resource "azurerm_container_app" "litellm" {
         secret_name = "database-url"
       }
 
+      dynamic "env" {
+        for_each = var.enable_redis ? [1] : []
+        content {
+          name  = "REDIS_HOST"
+          value = local.redis_host
+        }
+      }
+      dynamic "env" {
+        for_each = var.enable_redis ? [1] : []
+        content {
+          name  = "REDIS_PORT"
+          value = "6379"
+        }
+      }
+      dynamic "env" {
+        for_each = var.enable_redis ? [1] : []
+        content {
+          name        = "REDIS_PASSWORD"
+          secret_name = "redis-password"
+        }
+      }
+
       volume_mounts {
         name = "config"
         path = "/etc/litellm"
@@ -147,5 +177,7 @@ resource "azurerm_container_app" "litellm" {
     # the container starts, so LiteLLM's startup health check can reach the
     # private Foundry accounts and does not cool the deployments down.
     azurerm_private_endpoint.foundry,
+    # Redis (when enabled) must exist first so its internal FQDN is resolvable.
+    azurerm_container_app.redis,
   ]
 }

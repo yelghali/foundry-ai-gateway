@@ -54,6 +54,10 @@ locals {
   # The two Foundry endpoints LiteLLM load balances across.
   foundry_api_bases = [for f in azurerm_cognitive_account.foundry : "https://${f.custom_subdomain_name}.openai.azure.com/"]
 
+  # Private Redis Container App hostname (internal ACA load balancer) — only set
+  # when enable_redis = true; consumed by the LiteLLM router for shared state.
+  redis_host = var.enable_redis ? azurerm_container_app.redis[0].ingress[0].fqdn : ""
+
   # PostgreSQL is always private; the VNet-integrated ACA env reaches it by FQDN.
   database_url = "postgresql://${var.pg_admin_login}:${random_password.pg.result}@${azurerm_postgresql_flexible_server.pg.fqdn}:5432/${var.pg_database}?sslmode=require"
 
@@ -61,5 +65,6 @@ locals {
     public_model_name = var.public_model_name
     deployment_name   = var.model_deployment_name
     store_model_in_db = var.store_model_in_db
+    redis_enabled     = var.enable_redis
   })
 }
