@@ -67,6 +67,12 @@ variable "private_ingress" {
   default     = false
 }
 
+variable "private_endpoint_enabled" {
+  description = "true = expose LiteLLM ONLY through a Private Endpoint on the Container Apps environment: public network access is DISABLED and the app FQDN (ca-...azurecontainerapps.io) resolves to the PE's private IP via the privatelink.<region>.azurecontainerapps.io zone. Reachable from the VNet, peered spokes and on-prem over VPN. Leave private_ingress = false with this (the env keeps its external load balancer; only public access is turned off). false = keep the public/internal ingress behaviour controlled by private_ingress."
+  type        = bool
+  default     = false
+}
+
 variable "manage_pe_dns" {
   description = "true = attach a private DNS zone group to each private endpoint (Terraform writes the A record into the platform zone). false = create the private endpoints WITHOUT a DNS zone group and let your landing-zone DNS policy (DINE) register the records."
   type        = bool

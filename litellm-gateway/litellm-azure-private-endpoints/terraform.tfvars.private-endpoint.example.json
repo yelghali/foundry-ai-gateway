@@ -1,0 +1,23 @@
+{
+  "//": "Example: expose LiteLLM ONLY through a Private Endpoint (public access OFF).",
+  "//_usage": "Copy to terraform.tfvars.json and adjust IDs. Reach it from the VNet, peered spokes and on-prem over VPN. See README section 'Private access via Private Endpoint'.",
+
+  "subscription_id": "<your-sub>",
+  "resource_group_name": "<your-app-rg>",
+  "location": "francecentral",
+  "name_suffix": "<short-unique>",
+
+  "private_endpoint_enabled": true,
+  "private_ingress": false,
+  "manage_pe_dns": true,
+
+  "aca_infrastructure_subnet_id": "/subscriptions/<sub>/resourceGroups/<net-rg>/providers/Microsoft.Network/virtualNetworks/<vnet>/subnets/snet-appintegration",
+  "private_endpoint_subnet_id": "/subscriptions/<sub>/resourceGroups/<net-rg>/providers/Microsoft.Network/virtualNetworks/<vnet>/subnets/snet-private-endpoints",
+
+  "private_dns_zone_id_openai": "/subscriptions/<dns-sub>/resourceGroups/<dns-rg>/providers/Microsoft.Network/privateDnsZones/privatelink.openai.azure.com",
+  "private_dns_zone_id_cognitiveservices": "/subscriptions/<dns-sub>/resourceGroups/<dns-rg>/providers/Microsoft.Network/privateDnsZones/privatelink.cognitiveservices.azure.com",
+  "private_dns_zone_id_services_ai": "/subscriptions/<dns-sub>/resourceGroups/<dns-rg>/providers/Microsoft.Network/privateDnsZones/privatelink.services.ai.azure.com",
+  "private_dns_zone_id_vault": "/subscriptions/<dns-sub>/resourceGroups/<dns-rg>/providers/Microsoft.Network/privateDnsZones/privatelink.vaultcore.azure.net",
+  "private_dns_zone_id_postgres": "/subscriptions/<dns-sub>/resourceGroups/<dns-rg>/providers/Microsoft.Network/privateDnsZones/privatelink.postgres.database.azure.com",
+  "private_dns_zone_id_aca": "/subscriptions/<dns-sub>/resourceGroups/<dns-rg>/providers/Microsoft.Network/privateDnsZones/privatelink.francecentral.azurecontainerapps.io"
+}

@@ -42,6 +42,16 @@ resource "time_sleep" "kv_rbac" {
   create_duration = "30s"
 }
 
+# Data-plane RBAC ("Key Vault Secrets User") granted to the LiteLLM identity can
+# take a few minutes to propagate. Without this wait the Container App revision
+# provisions before the grant is effective and fails with
+# "unable to fetch secret ... using Managed identity". The container app
+# depends on this instead of on the raw role assignment.
+resource "time_sleep" "identity_kv_rbac" {
+  depends_on      = [azurerm_role_assignment.identity_kv_secrets_user]
+  create_duration = "180s"
+}
+
 resource "azurerm_key_vault_secret" "master_key" {
   name         = "litellm-master-key"
   value        = "sk-${random_password.master_key.result}"

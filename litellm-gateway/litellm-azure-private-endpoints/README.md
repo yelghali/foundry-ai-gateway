@@ -93,7 +93,7 @@ switch is `private_ingress`.
 | Foundries | 🔒 always private (public access off + private endpoints + `privatelink.openai`/`cognitiveservices`/`services.ai`) |
 | Key Vault | 🔒 always private (selected-networks + private endpoint + `privatelink.vaultcore`) |
 | ACA env | always VNet-integrated (`snet-appintegration`) |
-| **LiteLLM ingress** | `private_ingress = false` → **public** (test) · `private_ingress = true` → **internal** |
+| **LiteLLM ingress** | `private_ingress = false` → **public** (test) · `private_ingress = true` → **internal** · `private_endpoint_enabled = true` → **Private Endpoint** (see below) |
 
 **Key Vault + Terraform:** the vault denies by default, but this run **allow-lists the deployer's
 egress IP** (auto-detected, or set `key_vault_allowed_ip`) so it can write the secrets. The app reads
@@ -157,6 +157,82 @@ terraform apply -var="private_ingress=true"
 ```
 (Flipping the ACA env between external/internal recreates the env. Once internal, resolve the gateway
 via `privatelink.francecentral.azurecontainerapps.io` from inside the VNet.)
+
+## Private access via Private Endpoint (recommended for on-prem over VPN)
+
+This is the **recommended way to lock LiteLLM down** while keeping it reachable from on-premises in a
+**hub-and-spoke** topology (VPN/ExpressRoute in the hub, this workload in a spoke). Instead of flipping
+the ingress to internal, you keep the environment's external load balancer but **disable its public
+network access** and front it with a **Private Endpoint**. The app keeps the **same FQDN**
+(`ca-litellm-<suffix>.<region>.azurecontainerapps.io`); that FQDN now resolves to the PE's **private
+IP** through the shared `privatelink.<region>.azurecontainerapps.io` zone.
+
+Enable it (PE only — do **not** also set `private_ingress = true`; the module blocks that combination):
+
+```powershell
+terraform apply -var="private_endpoint_enabled=true"
+```
+
+or in `terraform.tfvars.json` (see [`terraform.tfvars.private-endpoint.example.json`](terraform.tfvars.private-endpoint.example.json)):
+
+```jsonc
+{
+  "private_endpoint_enabled": true,   // public access OFF + PE on the ACA env
+  "private_ingress": false,           // keep the external LB; PE fronts it
+  "manage_pe_dns": true               // write the A-record into the privatelink zone
+}
+```
+
+What Terraform does when `private_endpoint_enabled = true`:
+- sets `public_network_access = "Disabled"` on the Container Apps environment (updatable in place, **no env recreation**),
+- creates an `azurerm_private_endpoint` (subresource **`managedEnvironments`**) in `snet-private-endpoints`,
+- with `manage_pe_dns = true`, writes the wildcard A-record into `privatelink.<region>.azurecontainerapps.io`.
+
+Outputs: `litellm_private_endpoint_ip` (the private IP the FQDN resolves to) and `private_endpoint_enabled`.
+
+### Topology (hub-and-spoke)
+
+```mermaid
+flowchart LR
+    OnPrem[On-prem client] -->|VPN / ExpressRoute| HubGW[VPN Gateway - HUB]
+    HubGW --- Hub[(VNet HUB)]
+    Hub -->|peering| Spoke[(VNet SPOKE - litellm)]
+    Spoke --> PE[Private Endpoint managedEnvironments]
+    PE --> ACA[LiteLLM Container App - public access OFF]
+    OnPremDNS[On-prem DNS] -->|conditional forwarder azurecontainerapps.io| Resolver[Azure Private Resolver inbound - HUB]
+    Resolver --> Zone[privatelink.-region-.azurecontainerapps.io linked to spoke VNet]
+```
+
+### What the platform/network team must set up for on-prem connectivity
+
+This module creates the PE and (optionally) the A-record. **Everything else is landing-zone plumbing**
+the partner owns on their environment:
+
+1. **Network routing (VPN → PE).** The VPN Gateway is in the **hub**; the PE is in the **spoke**
+   (`snet-private-endpoints`).
+   - Peer hub↔spoke with `allowForwardedTraffic` + hub `allowGatewayTransit` and spoke `useRemoteGateways`.
+   - Advertise/propagate the spoke PE subnet prefix to on-prem (BGP or static routes on the VPN).
+   - Allow inbound **443** from the on-prem ranges on the PE subnet NSG.
+2. **DNS (the critical part).**
+   - Link `privatelink.<region>.azurecontainerapps.io` to the **VNet that holds the PE** (private DNS zone → VNet link).
+   - Deploy an **Azure Private DNS Resolver** (inbound endpoint in the hub) — or a DNS forwarder VM pointing at `168.63.129.16`.
+   - On the **on-prem DNS**, add a **conditional forwarder** for `azurecontainerapps.io`
+     (or `<region>.azurecontainerapps.io`) → the resolver inbound endpoint IP in the hub.
+3. **Verify from on-prem.**
+   ```powershell
+   nslookup ca-litellm-<suffix>.<region>.azurecontainerapps.io   # must return the private IP (10.x)
+   curl https://ca-litellm-<suffix>.<region>.azurecontainerapps.io/health -H "Authorization: Bearer <key>"
+   ```
+
+> **Cost note:** a Container Apps Private Endpoint bills the Private Link **plus** a **Dedicated Plan
+> Management** charge (applies even on the Consumption profile).
+
+> **PE vs internal ingress:** `private_endpoint_enabled` keeps the external env and just turns off
+> public access (no env recreation, reuses the existing `privatelink.<region>.azurecontainerapps.io`
+> zone). `private_ingress = true` instead switches the env to an internal load balancer (recreates the
+> env) and needs a DNS zone named after the env **default domain** with a wildcard record. For on-prem
+> over VPN, **Private Endpoint is the simpler, common mechanism** (same DNS pattern as your other
+> private resources).
 
 ## Prerequisites / gotchas
 

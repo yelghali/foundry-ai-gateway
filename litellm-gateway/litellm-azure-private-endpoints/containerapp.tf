@@ -3,6 +3,8 @@
 #  it can reach the private-endpoint Foundries / Key Vault / PostgreSQL.
 #  private_ingress = false -> PUBLIC (external) ingress for testing.
 #  private_ingress = true  -> INTERNAL (VNet-private) ingress.
+#  private_endpoint_enabled = true -> public network access DISABLED; the env is
+#  reached ONLY through the Private Endpoint (see aca-private-endpoint.tf).
 ###############################################################################
 
 resource "azurerm_container_app_environment" "cae" {
@@ -12,13 +14,26 @@ resource "azurerm_container_app_environment" "cae" {
   log_analytics_workspace_id     = azurerm_log_analytics_workspace.logs.id
   infrastructure_subnet_id       = var.aca_infrastructure_subnet_id
   internal_load_balancer_enabled = var.private_ingress
-  tags                           = var.tags
+  # Turn off the public control-plane/data-plane access when fronting the env
+  # with a Private Endpoint. Updatable in place (no environment recreation).
+  public_network_access = var.private_endpoint_enabled ? "Disabled" : "Enabled"
+  tags                  = var.tags
 
   workload_profile {
     name                  = "Consumption"
     workload_profile_type = "Consumption"
     maximum_count         = 0
     minimum_count         = 0
+  }
+
+  # Enforce a SINGLE private mechanism: the Private Endpoint fronts the external
+  # environment (private_ingress = false). Do not combine it with internal
+  # ingress — pick one.
+  lifecycle {
+    precondition {
+      condition     = !(var.private_endpoint_enabled && var.private_ingress)
+      error_message = "Use only ONE private mode: set private_endpoint_enabled = true WITH private_ingress = false (the PE fronts the external env). Combining internal ingress (private_ingress = true) with a Private Endpoint is not supported by this module."
+    }
   }
 }
 
@@ -177,12 +192,17 @@ resource "azurerm_container_app" "litellm" {
   }
 
   depends_on = [
-    azurerm_role_assignment.identity_kv_secrets_user,
+    time_sleep.identity_kv_rbac,
     azurerm_role_assignment.identity_foundry_user,
     azurerm_key_vault_secret.master_key,
     azurerm_key_vault_secret.salt_key,
     azurerm_key_vault_secret.database_url,
     azurerm_postgresql_flexible_server_database.litellm,
+    # The app fetches its Key Vault secrets over the KV private endpoint (the KV
+    # firewall denies public access), so the PE and its private DNS A record
+    # must exist before the revision provisions — otherwise the secret FQDN
+    # resolves to the blocked public IP.
+    azurerm_private_endpoint.kv,
     # Ensure the Foundry private endpoints (and their DNS records) exist before
     # the container starts, so LiteLLM's startup health check can reach the
     # private Foundry accounts and does not cool the deployments down.
