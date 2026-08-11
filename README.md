@@ -4,6 +4,14 @@
 
 A hands-on **MOAW lab** showing five complementary ways to put an *AI gateway* in front of [Azure AI Foundry](https://learn.microsoft.com/azure/ai-foundry/):
 
+The primary enterprise scenario is now **Foundry Agent → Toolbox → customer-owned APIM**:
+one versioned Toolbox composes an MCP server and an A2A agent, and APIM authenticates and
+governs both downstream protocols. Authentication is **managed identity / Microsoft Entra**
+throughout — the MCP, A2A and Toolbox connections all use `ProjectManagedIdentity` and store
+no secret, and APIM pins the token's `oid` claim to the calling project. The single remaining
+key (⚠️ the APIM subscription key on the *model* connection) is flagged in the lab, and
+Scenario 2 shows that leg key-free. LiteLLM is not required for this scenario.
+
 1. **Azure API Management (APIM) as an AI gateway** — load balance one model across **two Foundry regions** with a backend pool, priority/weight routing, circuit breakers, and transparent 429 retries.
 2. **MCP governance** — expose and govern the **Microsoft Learn MCP server** through APIM.
 2b. **A2A governance** — expose and govern a **dummy A2A (Agent2Agent) agent** through APIM so one agent can call another *through* your gateway.
@@ -113,6 +121,12 @@ python ../src/test/agent_a2a_apim.py          # agent + local tool + remote A2A 
 $env:LITELLM_BASE_URL = "<gatewayUrl>"; $env:LITELLM_MASTER_KEY = "sk-litellm-foundry-poc"
 python ../src/test/register_a2a_agent.py       # register dummy-specialist in LiteLLM's A2A gateway
 python ../src/test/agent_a2a_litellm.py        # agent + local tool + remote A2A agent, both THROUGH LiteLLM
+
+# 3c. Focused Scenario 1: Foundry Toolbox with authenticated MCP + A2A through BYO APIM
+cd ../infra
+./deploy-scenario1-apim.ps1                   # project + Entra-protected MCP API + MI connections
+./deploy-a2a-apim.ps1                         # Entra-protected A2A card + message APIs on APIM
+python ../src/test/scenario1_custom_apim.py   # model via APIM; Toolbox invokes MCP + A2A via APIM (MI)
 
 # 4. (Part 5) Bring your own gateway INTO Foundry. Two connection types:
 #    (a) APIM as an "ApiManagement" connection (reuses Parts 1-3 — no container)

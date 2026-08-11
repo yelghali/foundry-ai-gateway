@@ -147,8 +147,14 @@ $config = [ordered]@{
     sc1ProjectEndpoint   = $sc1Endpoint
     sc1DriverModel       = $sc1Out.driverModelDeploymentName.value
     sc1CustomKeyModel    = $sc1Out.customKeyModelDeploymentName.value
+    sc1EntraAudience     = $sc1Out.entraAudience.value
+    sc1McpApimMiUrl      = $sc1Out.mcpApimMiUrl.value
     sc1McpApimConnId     = $sc1Out.mcpApimConnectionId.value
-    sc1A2aConnId         = $sc1Out.a2aDirectConnectionId.value
+    sc1A2aApimUrl        = $sc1Out.a2aApimUrl.value
+    sc1A2aApimConnId     = $sc1Out.a2aApimConnectionId.value
+    sc1ToolboxName       = $sc1Out.toolboxName.value
+    sc1ToolboxMcpUrl     = $sc1Out.toolboxMcpUrl.value
+    sc1ToolboxConnId     = $sc1Out.toolboxConnectionId.value
 
     sc2ProjectEndpoint   = $sc2Endpoint
     sc2DriverModel       = $sc2Out.driverModelDeploymentName.value

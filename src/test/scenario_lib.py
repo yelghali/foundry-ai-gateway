@@ -33,6 +33,8 @@ from azure.identity import DefaultAzureCredential
 from azure.ai.projects import AIProjectClient
 from azure.ai.projects.models import PromptAgentDefinition, MCPTool, A2APreviewTool
 
+import scenario_config
+
 # --- Pretty colors (ANSI) ------------------------------------------------------
 # Enable ANSI on Windows terminals and honor NO_COLOR / non-tty output.
 if os.name == "nt":
@@ -103,7 +105,12 @@ QUESTION_A2A = "Ask the specialist: should I put a gateway in front of my agents
 
 def connect(endpoint: str) -> AIProjectClient:
     """Open a client against a scenario's own client Foundry project."""
-    return AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential())
+    return AIProjectClient(
+        endpoint=endpoint,
+        credential=DefaultAzureCredential(
+            process_timeout=scenario_config.credential_process_timeout()
+        ),
+    )
 
 
 def run_subscenario(project, results, label, definition, question, *, title=None, calls=None) -> bool:

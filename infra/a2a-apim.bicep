@@ -22,9 +22,13 @@
 //      from the same backend, with an OUTBOUND policy that rewrites the card's `url` to
 //      {gateway}/dummy-a2a-apim. Because it lives at the host root, the RemoteA2A resolver
 //      finds it with the default agent-card path.
-//    - A NEW RemoteA2A connection 'dummy-a2a-apim' on the Scenario 1 client account whose
-//      target is the APIM HOST ROOT and which carries the APIM subscription key as the
-//      api-key header (used for both the card fetch and message/send).
+//
+//  AUTHENTICATION — managed identity / Microsoft Entra, no keys:
+//    Both APIs set subscriptionRequired=false and accept exactly one credential: a Microsoft
+//    Entra token whose `oid` claim is the Scenario 1 PROJECT managed identity. APIM strips the
+//    Authorization header before forwarding, so the Container App never sees the token.
+//    The matching RemoteA2A connection ('dummy-a2a-apim', authType ProjectManagedIdentity)
+//    is created by client-foundry-sc1.bicep — no credential is stored anywhere.
 //
 //  Existing APIs ('dummy-a2a'), backends and connections ('dummy-a2a-direct') are left
 //  untouched, so every current scenario keeps working exactly as before.
@@ -37,11 +41,14 @@
 @description('Name of the EXISTING APIM service (main.bicep output apimServiceName).')
 param apimServiceName string
 
-@description('Name of the EXISTING APIM subscription that holds the gateway key.')
-param apimSubscriptionName string = 'subscription1'
-
-@description('Name of the EXISTING Scenario 1 client Foundry account that gets the new connection.')
+@description('Name of the EXISTING Scenario 1 client Foundry account whose project managed identity is allowed through the gateway.')
 param sc1AccountName string
+
+@description('Name of the EXISTING Scenario 1 project (client-foundry-sc1.bicep projectName).')
+param sc1ProjectName string = 'aigateway-sc1'
+
+@description('Audience the Scenario 1 project managed identity requests its Entra token for. Must match the client-foundry-sc1.bicep entraAudience value.')
+param entraAudience string = 'https://cognitiveservices.azure.com'
 
 @description('Name of the EXISTING dummy A2A backend in APIM (created by a2a-agent.bicep).')
 param a2aBackendId string = 'dummy-a2a'
@@ -57,24 +64,29 @@ resource apimService 'Microsoft.ApiManagement/service@2024-06-01-preview' existi
   name: apimServiceName
 }
 
-resource apimSubscription 'Microsoft.ApiManagement/service/subscriptions@2024-06-01-preview' existing = {
-  parent: apimService
-  name: apimSubscriptionName
-}
-
 resource sc1Account 'Microsoft.CognitiveServices/accounts@2025-06-01' existing = {
   name: sc1AccountName
+}
+
+resource sc1Project 'Microsoft.CognitiveServices/accounts/projects@2025-04-01-preview' existing = {
+  parent: sc1Account
+  name: sc1ProjectName
 }
 
 var gatewayUrl = apimService.properties.gatewayUrl
 // Where the rewritten agent card tells callers to POST message/send (through APIM).
 var a2aMessageUrl = '${gatewayUrl}/${apiPath}'
 
-var backendPolicyXml = '<policies><inbound><base /><set-backend-service backend-id="${a2aBackendId}" /></inbound><backend><forward-request buffer-response="false" /></backend><outbound><base /></outbound><on-error><base /></on-error></policies>'
+// Only the Scenario 1 project managed identity may call these APIs. The Authorization header
+// is removed on the way out so the Container App never receives the gateway's Entra token.
+var validateTokenXml = '<validate-azure-ad-token tenant-id="${subscription().tenantId}" header-name="Authorization" failed-validation-httpcode="401" failed-validation-error-message="Unauthorized: a Microsoft Entra token from the Scenario 1 project managed identity is required."><audiences><audience>${entraAudience}</audience><audience>${entraAudience}/</audience></audiences><required-claims><claim name="oid" match="any"><value>${sc1Project.identity.principalId}</value></claim></required-claims></validate-azure-ad-token>'
+var inboundXml = '<inbound><base />${validateTokenXml}<set-backend-service backend-id="${a2aBackendId}" /><set-header name="Authorization" exists-action="delete" /></inbound>'
+
+var backendPolicyXml = '<policies>${inboundXml}<backend><forward-request buffer-response="false" /></backend><outbound><base /></outbound><on-error><base /></on-error></policies>'
 
 // Outbound policy for the root card operations: rewrite the AgentCard's `url` to the APIM
 // message endpoint, so the calling agent posts message/send back through APIM.
-var cardPolicyXml = '<policies><inbound><base /><set-backend-service backend-id="${a2aBackendId}" /></inbound><backend><forward-request buffer-response="false" /></backend><outbound><base /><set-body>@{ var card = context.Response.Body.As<JObject>(preserveContent: true); card["url"] = "${a2aMessageUrl}"; return card.ToString(); }</set-body></outbound><on-error><base /></on-error></policies>'
+var cardPolicyXml = '<policies>${inboundXml}<backend><forward-request buffer-response="false" /></backend><outbound><base /><set-body>@{ var card = context.Response.Body.As<JObject>(preserveContent: true); card["url"] = "${a2aMessageUrl}"; return card.ToString(); }</set-body></outbound><on-error><base /></on-error></policies>'
 
 // ------------------
 //    NEW MESSAGE API: dummy-a2a-apim  (POST / -> JSON-RPC message/send)
@@ -177,30 +189,10 @@ resource a2aLegacyCardOperation 'Microsoft.ApiManagement/service/apis/operations
 }
 
 // ------------------
-//    NEW RemoteA2A CONNECTION on the Scenario 1 client account
-// ------------------
-// Target is the APIM HOST ROOT (so card discovery resolves to the root card API). Carries
-// the APIM subscription key as the api-key header for both the card fetch and message/send.
-
-resource a2aApimConnection 'Microsoft.CognitiveServices/accounts/connections@2025-04-01-preview' = {
-  parent: sc1Account
-  name: 'dummy-a2a-apim'
-  properties: {
-    category: 'RemoteA2A'
-    target: gatewayUrl
-    authType: 'CustomKeys'
-    credentials: {
-      keys: {
-        'api-key': apimSubscription.listSecrets().primaryKey
-      }
-    }
-    metadata: {}
-  }
-}
-
-// ------------------
 //    OUTPUTS
 // ------------------
+// The matching RemoteA2A connection ('dummy-a2a-apim', ProjectManagedIdentity) already exists
+// on the Scenario 1 project — created by client-foundry-sc1.bicep, with no stored credential.
 
 @description('Base URL the RemoteA2A connection/tool uses (APIM host root; default card path resolves to the root card API).')
 output a2aApimUrl string = gatewayUrl
@@ -208,5 +200,5 @@ output a2aApimUrl string = gatewayUrl
 @description('Through-APIM message endpoint the rewritten card advertises (where message/send flows).')
 output a2aApimMessageUrl string = a2aMessageUrl
 
-@description('Resource id of the new RemoteA2A connection on the Scenario 1 client account.')
-output sc1A2aApimConnectionId string = a2aApimConnection.id
+@description('Object id of the Scenario 1 project managed identity that the gateway policies accept.')
+output allowedPrincipalId string = sc1Project.identity.principalId

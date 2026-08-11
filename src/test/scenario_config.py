@@ -51,3 +51,15 @@ def require(key: str, env: str | None = None):
         hint = f" (set {env} or run infra/deploy-client-foundry.ps1)" if env else ""
         raise SystemExit(f"Missing required config '{key}'{hint}.")
     return value
+
+
+def credential_process_timeout() -> int:
+    """Seconds DefaultAzureCredential waits for the az / PowerShell CLI probe.
+
+    The SDK default is 10s, which times out on machines where the Azure CLI starts
+    slowly. Override with AZURE_CREDENTIAL_PROCESS_TIMEOUT.
+    """
+    try:
+        return int(os.environ.get("AZURE_CREDENTIAL_PROCESS_TIMEOUT", "90"))
+    except ValueError:
+        return 90

@@ -1,16 +1,20 @@
 """
-Scenario 1 — CUSTOM (APIM), subscription-KEY custom connection.
+Scenario 1 — Foundry agent + Toolbox behind BYO Azure APIM, managed-identity first.
 
-Runs against its OWN client Foundry account (client-foundry-sc1). The client reaches the
-enterprise resources with *custom* connections that carry the APIM subscription KEY — the
-"bring the gateway URL + key yourself" pattern. The model leg uses an `ApiManagement`
-connection (the supported key path; a raw `CustomKeys` connection cannot back a model),
-and the tool/A2A legs use connections too:
-    1a  MODEL  apim-custom-key/<model>      -> ApiManagement connection, subscription KEY
-    1b  TOOL   MS Learn MCP behind APIM     -> CustomKeys connection (mslearn-mcp-apim),
-                                               driven by the native driver model
-    1c  A2A    remote specialist agent      -> RemoteA2A connection (dummy-a2a-direct),
-                                               orchestrated by the native driver model
+Runs against its OWN client Foundry account (client-foundry-sc1). One versioned Foundry
+Toolbox holds both remote capabilities, and every tool call crosses the customer-owned APIM
+gateway. No credential appears in this file:
+    1a  MODEL   apim-custom-key/<model>   -> ApiManagement connection.
+                                             ⚠️ APIM subscription KEY — the only secret in
+                                             the scenario (last resort; Scenario 2 shows the
+                                             same model leg with managed identity).
+    1b  TOOLBOX MS Learn MCP behind APIM  -> project MI (Entra token validated by APIM)
+                remote A2A behind APIM    -> project MI (Entra token validated by APIM)
+                Toolbox MCP endpoint      -> project MI (audience https://ai.azure.com)
+
+APIM pins the `oid` claim of the incoming Entra token to this project's managed identity and
+strips the Authorization header before forwarding, so neither downstream service ever sees a
+gateway credential.
 
 Run:
     python scenario1_custom_apim.py
@@ -22,14 +26,20 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import scenario_lib as s  # noqa: E402
 import scenario_config as cfg  # noqa: E402
+from azure.ai.projects.models import A2APreviewTool, MCPTool, PromptAgentDefinition  # noqa: E402
 
 ENDPOINT = cfg.require("sc1ProjectEndpoint", "SC1_PROJECT_ENDPOINT")
 DRIVER_MODEL = cfg.get("sc1DriverModel", "SC1_DRIVER_MODEL", "gpt-4o-mini")
 KEY_MODEL = cfg.get("sc1CustomKeyModel", "SC1_CUSTOM_KEY_MODEL", "apim-custom-key/gpt-4o-mini")
-MCP_APIM_URL = cfg.get("mcpApimUrl", "SC1_MCP_APIM_URL")
-MCP_APIM_CONN_ID = cfg.get("sc1McpApimConnId", "SC1_MCP_APIM_CONN_ID")
-A2A_URL = cfg.get("a2aDirectUrl", "SC1_A2A_URL")
-A2A_CONN_ID = cfg.get("sc1A2aConnId", "SC1_A2A_CONN_ID")
+# Entra-protected MCP front door on APIM (subscriptionRequired=false).
+MCP_APIM_URL = cfg.require("sc1McpApimMiUrl", "SC1_MCP_APIM_MI_URL")
+MCP_APIM_CONN_ID = cfg.require("sc1McpApimConnId", "SC1_MCP_APIM_CONN_ID")
+ENTRA_AUDIENCE = cfg.get("sc1EntraAudience", "SC1_ENTRA_AUDIENCE", "https://cognitiveservices.azure.com")
+A2A_URL = cfg.require("sc1A2aApimUrl", "SC1_A2A_APIM_URL")
+A2A_CONN_ID = cfg.require("sc1A2aApimConnId", "SC1_A2A_APIM_CONN_ID")
+TOOLBOX_NAME = cfg.get("sc1ToolboxName", "SC1_TOOLBOX_NAME", "scenario1-apim-toolbox")
+TOOLBOX_URL = cfg.require("sc1ToolboxMcpUrl", "SC1_TOOLBOX_MCP_URL")
+TOOLBOX_CONN_ID = cfg.require("sc1ToolboxConnId", "SC1_TOOLBOX_CONN_ID")
 
 
 def main() -> None:
@@ -37,52 +47,72 @@ def main() -> None:
     results: list = []
 
     s.print_header(
-        "Scenario 1 — CUSTOM (APIM), subscription-KEY custom connection",
+        "Scenario 1 — Foundry agent + Toolbox + BYO APIM (managed identity)",
         [
-            "The model leg uses an ApiManagement connection carrying the APIM subscription",
-            "key; the tool leg uses a CustomKeys connection; the A2A leg uses a RemoteA2A",
-            "connection — all three calls are made through Foundry connections.",
+            "A versioned Toolbox combines MCP and A2A. Both downstream legs authenticate to",
+            "APIM with the project managed identity (Entra token, oid pinned by policy), and",
+            "the agent reaches the Toolbox with project MI too. Only the model leg uses a key.",
         ],
     )
 
-    # 1a — MODEL: custom ApiManagement connection authenticated by the subscription key.
+    # 1a — MODEL: ⚠️ the one key in this scenario (APIM subscription key on an
+    # ApiManagement connection). Scenario 2 runs the same leg with managed identity.
     s.run_subscenario(
         project, results, "sc1-custom-apim-model-key",
         s.model_def(KEY_MODEL),
         s.QUESTION_MODEL,
-        title="1a  MODEL  — ApiManagement connection (APIM subscription key)",
+        title="1a  MODEL  — ApiManagement connection (⚠️ APIM subscription key, last resort)",
         calls=[("model conn", KEY_MODEL)],
     )
 
-    # 1b — TOOL: MS Learn MCP governed by APIM via a CustomKeys connection.
-    if MCP_APIM_URL and MCP_APIM_CONN_ID:
-        s.run_subscenario(
-            project, results, "sc1-custom-apim-tool",
-            s.tool_def(DRIVER_MODEL, MCP_APIM_URL, MCP_APIM_CONN_ID, "APIM (custom connection)"),
-            s.QUESTION_TOOL,
-            title="1b  TOOL   — MS Learn MCP via APIM (CustomKeys connection)",
-            calls=[
-                ("driver model", DRIVER_MODEL),
-                ("MCP url", MCP_APIM_URL),
-                ("MCP conn", s.short_conn(MCP_APIM_CONN_ID)),
-            ],
-        )
+    # 1b — TOOLBOX: one reusable, versioned tool surface. The toolbox and agent definitions
+    # carry only connection IDs; the connections themselves hold no secret (project MI).
+    toolbox = project.toolboxes.create_toolbox_version(
+        name=TOOLBOX_NAME,
+        description="Entra-authenticated MCP and A2A tools governed by customer-owned APIM.",
+        tools=[
+            MCPTool(
+                server_label="mslearn",
+                server_url=MCP_APIM_URL,
+                server_description="Microsoft Learn MCP through Azure API Management (Entra auth).",
+                project_connection_id=MCP_APIM_CONN_ID,
+                require_approval="never",
+            ),
+            A2APreviewTool(project_connection_id=A2A_CONN_ID),
+        ],
+    )
+    print(f"  Toolbox {toolbox.name} version {toolbox.version} created; agent uses its stable consumer URL.")
 
-    # 1c — A2A: remote specialist via a RemoteA2A connection (native driver model).
-    if A2A_URL and A2A_CONN_ID:
-        s.run_subscenario(
-            project, results, "sc1-custom-apim-a2a",
-            s.a2a_def(DRIVER_MODEL, A2A_URL, A2A_CONN_ID),
-            s.QUESTION_A2A,
-            title="1c  A2A    — remote specialist (RemoteA2A connection, direct host root)",
-            calls=[
-                ("driver model", DRIVER_MODEL),
-                ("A2A url", A2A_URL),
-                ("A2A conn", s.short_conn(A2A_CONN_ID)),
-            ],
-        )
+    toolbox_definition = PromptAgentDefinition(
+        model=DRIVER_MODEL,
+        instructions=(
+            "Use the toolbox for both parts. First use Microsoft Learn to explain Azure API "
+            "Management in one sentence, then ask the specialist whether agents should be "
+            "placed behind a gateway. Report both answers concisely."
+        ),
+        tools=[MCPTool(
+            server_label="apim_toolbox",
+            server_url=TOOLBOX_URL,
+            server_description="Foundry Toolbox containing APIM-governed MCP and A2A tools.",
+            project_connection_id=TOOLBOX_CONN_ID,
+            require_approval="never",
+        )],
+    )
+    s.run_subscenario(
+        project, results, "sc1-apim-toolbox-mcp-a2a",
+        toolbox_definition,
+        "Use both toolbox capabilities now.",
+        title="1b  TOOLBOX — MCP + A2A through BYO APIM (project managed identity)",
+        calls=[
+            ("toolbox", TOOLBOX_URL),
+            ("toolbox auth", "ProjectManagedIdentity → https://ai.azure.com"),
+            ("MCP via APIM", MCP_APIM_URL),
+            ("A2A via APIM", A2A_URL),
+            ("downstream auth", f"ProjectManagedIdentity → {ENTRA_AUDIENCE} (no key)"),
+        ],
+    )
 
-    s.print_summary("Scenario 1 — CUSTOM (APIM), subscription-KEY custom connection", results)
+    s.print_summary("Scenario 1 — Foundry agent + Toolbox + BYO APIM (managed identity)", results)
 
 
 if __name__ == "__main__":

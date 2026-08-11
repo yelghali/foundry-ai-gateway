@@ -190,12 +190,17 @@ resource a2aApi 'Microsoft.ApiManagement/service/apis@2024-06-01-preview' = {
   }
 }
 
+// Rewrite the backend card's `url` so clients that discover the agent through APIM also
+// POST message/send through APIM rather than bypassing the gateway for the message leg.
+var a2aApimUrl = '${apimService.properties.gatewayUrl}/dummy-a2a'
+var a2aPolicyXml = '<policies><inbound><base /><set-backend-service backend-id="dummy-a2a" /></inbound><backend><forward-request buffer-response="false" /></backend><outbound><base /><choose><when condition="@(context.Request.Method == &quot;GET&quot; &amp;&amp; context.Request.Url.Path.Contains(&quot;/.well-known/&quot;))"><set-body>@{ var card = context.Response.Body.As&lt;JObject&gt;(preserveContent: true); card["url"] = "${a2aApimUrl}"; return card.ToString(); }</set-body></when></choose></outbound><on-error><base /></on-error></policies>'
+
 resource a2aApiPolicy 'Microsoft.ApiManagement/service/apis/policies@2024-06-01-preview' = {
   name: 'policy'
   parent: a2aApi
   properties: {
     format: 'rawxml'
-    value: '<policies><inbound><base /><set-backend-service backend-id="dummy-a2a" /></inbound><backend><forward-request buffer-response="false" /></backend><outbound><base /></outbound><on-error><base /></on-error></policies>'
+    value: a2aPolicyXml
   }
   dependsOn: [
     a2aBackend
@@ -242,4 +247,4 @@ resource a2aLegacyCardOperation 'Microsoft.ApiManagement/service/apis/operations
 output a2aAgentDirectUrl string = 'https://${a2aApp.properties.configuration.ingress.fqdn}'
 
 @description('Dummy A2A agent proxied through APIM. POST A2A JSON-RPC here with the api-key header.')
-output a2aAgentApimUrl string = '${apimService.properties.gatewayUrl}/dummy-a2a'
+output a2aAgentApimUrl string = a2aApimUrl

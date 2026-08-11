@@ -10,7 +10,11 @@ httpx>=0.27.0
 # Also: scenario0_local_apim.py (Part 6 — local MAF agent: model + MCP + A2A through APIM, no Foundry)
 agent-framework-core>=1.8.0
 agent-framework-openai>=1.8.0
+# Scenario 4: consume the APIM-fronted enterprise Foundry agent over A2A.
+agent-framework-a2a>=1.0.0b260604
+a2a-sdk>=1.0.2
 # Foundry "bring your own gateway" agent samples (agent_foundry_apim.py, agent_foundry_litellm.py)
 # Also: agent_foundry_mcp_a2a_litellm.py uses MCPTool / A2APreviewTool (azure-ai-projects >= 2.2).
-azure-ai-projects>=2.2.0
+# Toolboxes (`project.toolboxes.create_toolbox_version`) and A2A-in-toolbox support.
+azure-ai-projects>=2.3.0
 azure-identity>=1.17.0
