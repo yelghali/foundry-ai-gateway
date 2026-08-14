@@ -3,14 +3,14 @@ published: false
 type: workshop
 title: Keyless Enterprise AI Gateway with APIM and Microsoft Foundry
 short_title: Keyless APIM and Foundry Lab
-description: Publish models, MCP servers, a Foundry Toolbox, and a Foundry-hosted A2A agent through customer-owned Azure API Management, then consume every surface from local Microsoft Agent Framework and Foundry Agent Service with Microsoft Entra identities.
+description: Publish models, MCP servers, a Foundry Toolbox, and A2A agents through customer-owned gateways, then compare keyless APIM connections with an optional LiteLLM ModelGateway from local Microsoft Agent Framework and Foundry Agent Service.
 level: intermediate
 authors:
   - Yassine El Ghali
 contacts:
   - linkedin.com/in/yelghali
-duration_minutes: 120
-tags: azure, api management, microsoft foundry, agent framework, openai, mcp, toolbox, a2a, managed identity
+duration_minutes: 150
+tags: azure, api management, microsoft foundry, agent framework, openai, mcp, toolbox, a2a, managed identity, litellm, modelgateway
 navigation_levels: 2
 navigation_numbering: true
 sections_title:
@@ -21,16 +21,9 @@ sections_title:
   - "Scenario 3: Toolbox"
   - "Scenario 4: A2A agent"
   - "Scenario 5: Capstone"
+  - "Scenario 6: LiteLLM BYOM"
   - Security and cleanup
 ---
-
-<style>
-table {
-  display: block;
-  max-width: 100%;
-  overflow-x: auto;
-}
-</style>
 
 # Keyless Enterprise AI Gateway with APIM and Microsoft Foundry
 
@@ -41,17 +34,24 @@ This lab builds one **customer-owned Azure API Management (APIM)** gateway and t
 - A local **Microsoft Agent Framework (MAF)** application.
 - A prompt agent hosted by **Microsoft Foundry Agent Service**.
 
-Both runtimes use the same governed API contracts. There are no APIM subscription keys, model keys, connection secrets, or key fallbacks in the supported path.
+Both runtimes use the same governed API contracts. Scenarios 1-5 are the core keyless APIM path: there are no APIM subscription keys, model keys, connection secrets, or key fallbacks.
+
+Scenario 6 is an optional comparison. It registers a customer-operated LiteLLM instance as a Foundry `ModelGateway` and also exposes MCP and A2A through LiteLLM. That path uses a bearer credential at the LiteLLM edge because the current `ModelGateway` connection contract does not support project managed identity. LiteLLM still uses managed identity to reach its private Foundry model backends.
 
 ## What is implemented
 
-| Scenario | APIM surface | Local MAF | Foundry Agent Service | Backend |
+<div style="max-width: 100%; overflow-x: auto;">
+
+| Scenario | Gateway surface | Local MAF | Foundry Agent Service | Backend |
 |---|---|---:|---:|---|
 | 1. Model | `/inference-mi/openai` | Yes | `ApiManagement` connected model | Two Foundry model regions |
 | 2. Raw MCP | `/learn-mcp-mi/mcp` | Yes | `MCPTool` project connection | Microsoft Learn MCP |
 | 3. Toolbox | `/toolboxes/research/mcp` | Yes | `MCPTool` project connection | Versioned Foundry Toolbox |
 | 4. A2A agent | `/enterprise-agents/enterprise-specialist/` | Yes | `A2APreviewTool` project connection | Foundry-hosted prompt agent |
 | 5. Capstone | Model + Toolbox + A2A | Yes | Yes | All three assets |
+| 6. LiteLLM BYOM (optional) | `/v1`, `/mcp/`, `/a2a/{id}` | Yes | `ModelGateway`, `MCPTool`, `A2APreviewTool` | Private Foundry models, Microsoft Learn MCP, dummy A2A agent |
+
+</div>
 
 Every APIM API has `subscriptionRequired: false`. APIM instead validates the caller's Microsoft Entra token:
 
@@ -62,9 +62,11 @@ Every APIM API has `subscriptionRequired: false`. APIM instead validates the cal
 After validation, APIM terminates that credential. It uses its own managed identity for Foundry backends and removes the token before forwarding to the public Microsoft Learn MCP server.
 
 > [!IMPORTANT]
-> This is a **bring-your-own-model connection to customer-owned APIM**. The lab does not attach APIM through Foundry's integrated AI Gateway administration experience, and it does not use LiteLLM or a `ModelGateway` connection.
+> Scenarios 1-5 use a **bring-your-own-model `ApiManagement` connection** to customer-owned APIM. They do not attach APIM through Foundry's integrated AI Gateway administration experience. Scenario 6 separately demonstrates the generic **`ModelGateway` connection** with LiteLLM; it is not the Foundry-integrated AI Gateway experience either.
 
 ## Resource roles
+
+<div style="max-width: 100%; overflow-x: auto;">
 
 | Resource | Responsibility |
 |---|---|
@@ -72,6 +74,9 @@ After validation, APIM terminates that credential. It uses its own managed ident
 | Toolbox publisher project | Own the versioned Toolbox and calls raw MCP through APIM with its project identity. |
 | Foundry app project | Hosts the second consumer and its model, MCP, Toolbox, and A2A connections. |
 | APIM Standard v2 | Validates callers, routes protocols, load-balances models, rewrites A2A cards, and establishes backend identity. |
+| LiteLLM stack (optional) | Provides an OpenAI-compatible model gateway plus MCP and A2A gateways; uses a user-assigned identity for private Foundry model access. |
+
+</div>
 
 ---
 
@@ -181,6 +186,8 @@ Each script asks for a one-sentence explanation of an AI gateway and exits nonze
 
 ## Follow the implementation
 
+<div style="max-width: 100%; overflow-x: auto;">
+
 | Layer | File | What to inspect |
 |---|---|---|
 | Local consumer | `src/test/scenario1_maf_model_apim.py` | `OpenAIChatCompletionClient(..., credential=credential)` |
@@ -188,6 +195,8 @@ Each script asks for a one-sentence explanation of an AI gateway and exits nonze
 | Project connection | `infra/foundry-consumers.bicep` | `category: 'ApiManagement'`, `authType: 'ProjectManagedIdentity'` |
 | Model API | `infra/main.bicep` | backend pool, circuit breaker, and `subscriptionRequired: false` |
 | APIM policy | `infra/policy-mi.xml` | token validation, backend selection, APIM managed identity, and retry |
+
+</div>
 
 ## Verify steady routing
 
@@ -237,11 +246,15 @@ Both agents use the Scenario 1 model path, invoke Microsoft Learn through APIM, 
 
 ## Compare the consumers
 
+<div style="max-width: 100%; overflow-x: auto;">
+
 | Local MAF | Foundry Agent Service |
 |---|---|
 | `MCPStreamableHTTPTool` receives an `httpx` client that adds an Entra token to each request. | `MCPTool` references the project-scoped `app-mcp-via-apim` connection. |
 | The signed-in user identity reaches APIM. | The Foundry app project managed identity reaches APIM. |
 | Context managers close the MCP session and HTTP client. | Agent Service manages the MCP session. The test deletes its temporary agent when run by the suite. |
+
+</div>
 
 The owning files are `src/test/scenario2_maf_mcp_apim.py`, `src/test/scenario2_foundry_mcp_apim.py`, and `infra/two-consumer-apim.bicep`.
 
@@ -310,6 +323,8 @@ The local client requests the v1.0 card explicitly. Foundry Agent Service uses t
 
 ## Gateway requirements
 
+<div style="max-width: 100%; overflow-x: auto;">
+
 | Requirement | Why it exists |
 |---|---|
 | Trailing slash on the Foundry connection target | Foundry uses URL-join semantics during card discovery. Without the slash, it drops the final path segment. |
@@ -317,6 +332,8 @@ The local client requests the v1.0 card explicitly. Foundry Agent Service uses t
 | Buffered card responses | APIM must read the complete card before rewriting its URLs. |
 | Unbuffered runtime responses | A2A runtime calls can stream and must not inherit the card buffering behavior. |
 | Foundry Agent Consumer role for APIM | Gives APIM least-privilege access to the enterprise agent endpoint. |
+
+</div>
 
 See `infra/enterprise-foundry-agent-apim.bicep` for the operations and policies, and `src/test/setup_enterprise_foundry_agent.py` for publisher-side agent creation and incoming A2A enablement.
 
@@ -348,6 +365,101 @@ Scenario 5a instruments its local HTTP client and specialist wrapper. It fails u
 Scenario 5b creates one Foundry agent version with `MCPTool` and `A2APreviewTool`, then runs a directed research turn followed by a specialist-advice turn. It uses the native driver for the same preview limitation described in Scenario 3.
 
 When `KEEP_AGENT=0`, both scripts delete temporary conversations and agent versions. The full runner sets this value automatically.
+
+---
+
+# Scenario 6 - BYO ModelGateway with LiteLLM
+
+![Local MAF and Foundry Agent Service authenticate to LiteLLM for model and MCP access. A protected host-root shim adapts Foundry A2A discovery to LiteLLM's UUID route. LiteLLM uses managed identity for private Foundry models.](assets/litellm-byo-two-consumers.svg)
+
+## Goal
+
+Add a second bring-your-own-model pattern without changing the keyless APIM scenarios:
+
+- Register LiteLLM as a Foundry `ModelGateway` for `gpt-5.1`.
+- Expose the Microsoft Learn MCP server through LiteLLM's `/mcp/` endpoint.
+- Register the dummy specialist in LiteLLM's A2A Agent Gateway.
+- Exercise all three surfaces from local MAF and Foundry Agent Service.
+
+The canonical LiteLLM stack is under `litellm-gateway/litellm-azure-private-endpoints`. Its public test ingress is the client edge; Foundry model endpoints, PostgreSQL, and Key Vault remain private. LiteLLM authenticates to Foundry with its user-assigned managed identity.
+
+## Compare the model connections
+
+Both connection types are bring-your-own-model mechanisms. They describe different gateway contracts.
+
+<div style="max-width: 100%; overflow-x: auto;">
+
+| Concern | `ApiManagement` in Scenarios 1-5 | `ModelGateway` in Scenario 6 |
+|---|---|---|
+| Intended gateway | Azure API Management | Generic custom or non-Azure model gateway |
+| Target shape in this lab | Azure-style deployment path plus `api-version` | OpenAI-compatible `/v1/chat/completions`, model in the request body |
+| Foundry-to-gateway authentication | `ProjectManagedIdentity` | API key formatted as a bearer header |
+| Model discovery | Static `models` metadata | Static metadata here; the contract can also support gateway discovery |
+| Gateway-to-model authentication | APIM system-assigned managed identity | LiteLLM user-assigned managed identity |
+| MCP and A2A coverage | Separate APIM APIs and project connections | Separate LiteLLM endpoints and project connections |
+
+</div>
+
+`ModelGateway` only registers the **model** contract. It does not automatically turn MCP servers or A2A agents into Foundry tools. The deployment therefore creates three Foundry-facing objects:
+
+1. Account-level `litellm-gateway` with category `ModelGateway`.
+2. Project-level `app-mcp-via-litellm` with category `CustomKeys`.
+3. Project-level `app-a2a-via-litellm` with category `RemoteA2A`.
+
+## Understand the A2A shim
+
+LiteLLM exposes a registered agent at `/a2a/{agent-id}`. Foundry A2A discovery instead starts at the connection host root and requests `/.well-known/agent-card.json`.
+
+The deployment adds a small protected Container App that:
+
+1. Serves the agent card at its host root.
+2. Requires the same bearer credential for card discovery and invocation.
+3. Forwards JSON-RPC to LiteLLM's UUID-based A2A route.
+4. Normalizes LiteLLM's nested `result.message` response into a standard A2A Message.
+
+This is a compatibility adapter, not a bypass. The invocation still crosses LiteLLM and remains visible to its A2A gateway.
+
+## Deploy the optional path
+
+First deploy the canonical LiteLLM stack by following its README. For a new public-ingress test deployment:
+
+```powershell
+Push-Location .\litellm-gateway\litellm-azure-private-endpoints
+terraform init
+terraform apply
+Pop-Location
+```
+
+Then add the Foundry connections and authenticated A2A shim:
+
+```powershell
+.\infra\deploy-litellm-scenario.ps1
+```
+
+The script reads the LiteLLM URL, public model name, and credential from that Terraform state. It writes only non-secret URLs and connection resource IDs to `infra/scenario-outputs.json`.
+
+> [!WARNING]
+> The workshop runner uses the existing LiteLLM administrator credential to keep the optional setup repeatable. Do not use a master key as an application credential in production. Create scoped virtual keys with budgets and model restrictions, or configure OAuth 2.0 when supported by your LiteLLM deployment and Foundry connection contract. Keep all such credentials in a secret store.
+
+## Run both consumers
+
+```powershell
+.\src\test\run-litellm-scenario.ps1
+```
+
+The runner keeps the credential in an environment variable only for the child processes. It executes:
+
+- `scenario6_maf_litellm.py`: local MAF model, MCP, and native A2A calls.
+- `scenario6_foundry_litellm.py`: Foundry `ModelGateway`, `MCPTool`, and `A2APreviewTool` calls.
+- `scenario6_litellm_security.py`: missing and invalid bearer requests against all three edges.
+
+A successful run ends with:
+
+```text
+Optional LiteLLM two-consumer scenario passed.
+```
+
+The owning infrastructure is `infra/litellm-foundry-connections.bicep`. Re-running its deployment script does not recreate ownership-bound Foundry connections, and an embedded source fingerprint rolls the A2A shim whenever its code changes.
 
 ---
 
@@ -386,7 +498,15 @@ Use `-KeepAgents` when you want to inspect the generated prompt-agent versions i
 .\src\test\run-two-consumer-scenarios.ps1 -KeepAgents
 ```
 
+Scenario 6 remains optional and has its own runner so it cannot change the keyless APIM validation result:
+
+```powershell
+.\src\test\run-litellm-scenario.ps1 -KeepAgents
+```
+
 ## Identity matrix
+
+<div style="max-width: 100%; overflow-x: auto;">
 
 | Hop | Presented identity | APIM action | Backend identity |
 |---|---|---|---|
@@ -397,6 +517,8 @@ Use `-KeepAgents` when you want to inspect the generated prompt-agent versions i
 | APIM to Foundry Toolbox | APIM system identity | Replace caller authorization | Foundry project user role |
 | APIM to Foundry A2A | APIM system identity | Backend credential | Foundry Agent Consumer |
 
+</div>
+
 ## Verified limitations
 
 - Toolbox and A2A integrations use preview APIs and SDK types.
@@ -405,6 +527,7 @@ Use `-KeepAgents` when you want to inspect the generated prompt-agent versions i
 - The sample enables public network access. For production, add private connectivity, DNS, diagnostics, policy fragments, and a dedicated application audience.
 - The deployment allowlists the signed-in developer object ID. For CI/CD, pass `-LocalCallerObjectId <workload-object-id>` to the APIM extension scripts.
 - APIM always has a built-in all-access subscription, but none of the four workshop APIs requires it and the lab never reads or distributes its keys.
+- The optional `ModelGateway` path uses a stored LiteLLM bearer credential at the client edge. This is a deliberate contrast with the project-managed-identity `ApiManagement` path, not a keyless claim.
 
 ## Clean up
 
@@ -422,6 +545,8 @@ Deletion runs asynchronously. APIM soft deletion can retain the service name tem
 - [Backends and load-balanced pools in API Management](https://learn.microsoft.com/azure/api-management/backends)
 - [Validate Microsoft Entra tokens in API Management](https://learn.microsoft.com/azure/api-management/validate-azure-ad-token-policy)
 - [Bring your own model to Foundry Agent Service](https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway)
+- [LiteLLM proxy server](https://docs.litellm.ai/docs/simple_proxy)
+- [LiteLLM virtual keys](https://docs.litellm.ai/docs/proxy/virtual_keys)
 - [Connect Foundry agents to MCP servers and Toolboxes](https://learn.microsoft.com/azure/foundry/agents/how-to/tools/model-context-protocol)
 - [Connect Foundry Agent Service to an A2A endpoint](https://learn.microsoft.com/azure/foundry/agents/how-to/tools/agent-to-agent)
 - [Agent2Agent authentication and protected agent cards](https://learn.microsoft.com/azure/foundry/agents/concepts/agent-to-agent-authentication)

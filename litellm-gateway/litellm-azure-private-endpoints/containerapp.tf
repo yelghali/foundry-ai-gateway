@@ -49,6 +49,13 @@ resource "azurerm_container_app" "litellm" {
   workload_profile_name        = "Consumption"
   tags                         = var.tags
 
+  lifecycle {
+    precondition {
+      condition     = var.enable_redis || var.litellm_max_replicas == 1
+      error_message = "Set litellm_max_replicas = 1 unless enable_redis = true so router cooldown and failover state remain consistent."
+    }
+  }
+
   identity {
     type         = "UserAssigned"
     identity_ids = [azurerm_user_assigned_identity.litellm.id]

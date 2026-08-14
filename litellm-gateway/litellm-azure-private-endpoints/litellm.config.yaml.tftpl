@@ -20,6 +20,12 @@ model_list:
     model_info:
       mode: chat
 
+mcp_servers:
+  mslearn:
+    url: "https://learn.microsoft.com/api/mcp"
+    transport: "http"
+    description: "Microsoft Learn documentation MCP server"
+
 litellm_settings:
   enable_azure_ad_token_refresh: true
   store_model_in_db: ${store_model_in_db}

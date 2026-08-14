@@ -25,8 +25,11 @@ Env:
   A2A_FORWARD_AUTH optional. Value for the Authorization header sent on the forwarded
                    request (e.g. "Bearer sk-..."), so the shim authenticates to the
                    gateway on the client's behalf.
+    A2A_INBOUND_AUTH optional. When set, card discovery and JSON-RPC require this exact
+                                     Authorization header. The direct demo agent remains open when unset.
 """
 
+import hmac
 import json
 import os
 import urllib.error
@@ -41,6 +44,7 @@ PUBLIC_URL = os.environ.get("A2A_PUBLIC_URL", "/")
 # (the card is still served locally so a managed A2A client can discover the agent).
 FORWARD_URL = os.environ.get("A2A_FORWARD_URL", "").strip()
 FORWARD_AUTH = os.environ.get("A2A_FORWARD_AUTH", "").strip()
+INBOUND_AUTH = os.environ.get("A2A_INBOUND_AUTH", "").strip()
 
 AGENT_CARD = {
     "name": "Dummy Specialist Agent",
@@ -114,9 +118,9 @@ def _error(request_id, code: int, message: str) -> dict:
 def _forward(raw_body: bytes) -> tuple[int, bytes]:
     """Relay a JSON-RPC request to the configured forward target (e.g. LiteLLM A2A).
 
-    Returns (status_code, response_bytes). The response is passed back to the caller
-    verbatim, so the gateway's own A2A reply (a Message-kind result) flows straight
-    through this host-root shim.
+    Returns (status_code, response_bytes). Current LiteLLM builds wrap an A2A Message
+    below ``result.message``; normalize that gateway-specific envelope for standard
+    A2A clients while leaving all other replies untouched.
     """
     req = urllib.request.Request(FORWARD_URL, data=raw_body, method="POST")
     req.add_header("Content-Type", "application/json")
@@ -124,9 +128,35 @@ def _forward(raw_body: bytes) -> tuple[int, bytes]:
         req.add_header("Authorization", FORWARD_AUTH)
     try:
         with urllib.request.urlopen(req, timeout=60) as resp:
-            return resp.status, resp.read()
+            return resp.status, _normalize_forward_response(resp.read())
     except urllib.error.HTTPError as exc:
         return exc.code, exc.read()
+
+
+def _normalize_forward_response(raw_body: bytes) -> bytes:
+    try:
+        payload = json.loads(raw_body)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return raw_body
+    result = payload.get("result") if isinstance(payload, dict) else None
+    message = result.get("message") if isinstance(result, dict) else None
+    if not isinstance(message, dict):
+        return raw_body
+
+    role = message.get("role", "agent")
+    if isinstance(role, str) and role.startswith("ROLE_"):
+        role = role.removeprefix("ROLE_").lower()
+    parts = []
+    for part in message.get("parts", []):
+        if isinstance(part, dict) and "text" in part:
+            parts.append({"kind": "text", "text": str(part["text"])})
+    payload["result"] = {
+        "kind": "message",
+        "role": role,
+        "messageId": message.get("messageId", f"msg-{uuid.uuid4().hex}"),
+        "parts": parts,
+    }
+    return json.dumps(payload).encode("utf-8")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -170,7 +200,24 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _authorized(self) -> bool:
+        if not INBOUND_AUTH:
+            return True
+        supplied = self.headers.get("Authorization", "")
+        if hmac.compare_digest(supplied, INBOUND_AUTH):
+            return True
+        self.send_response(401)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("WWW-Authenticate", "Bearer")
+        body = json.dumps({"error": "unauthorized"}).encode("utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+        return False
+
     def do_GET(self):  # noqa: N802 (http.server API)
+        if not self._authorized():
+            return
         path = self.path.split("?", 1)[0].rstrip("/") or "/"
         if path in ("/.well-known/agent-card.json", "/.well-known/agent.json"):
             self._send_json(200, AGENT_CARD)
@@ -180,6 +227,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(404, {"error": "not found"})
 
     def do_POST(self):  # noqa: N802 (http.server API)
+        if not self._authorized():
+            return
         try:
             raw = self._read_body()
             req = json.loads(raw or b"{}")
@@ -196,7 +245,7 @@ class Handler(BaseHTTPRequestHandler):
         if method in ("message/send", "SendMessage", "message/stream"):
             if FORWARD_URL:
                 # Host-root shim: forward the call to the gateway (e.g. LiteLLM A2A)
-                # with the Authorization header injected, and relay its reply verbatim.
+                # with the Authorization header injected and normalize its A2A envelope.
                 status, body = _forward(raw)
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json")

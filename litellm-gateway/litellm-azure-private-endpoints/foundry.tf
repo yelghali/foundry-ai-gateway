@@ -14,6 +14,7 @@ resource "azurerm_cognitive_account" "foundry" {
   kind                          = "AIServices"
   sku_name                      = "S0"
   custom_subdomain_name         = "aif-${var.name_prefix}-0${count.index + 1}-${local.suffix}"
+  local_auth_enabled            = false
   public_network_access_enabled = false
 
   # true = this is a Microsoft Foundry (v2) account: it supports projects and
