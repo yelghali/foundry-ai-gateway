@@ -11,15 +11,17 @@ contacts:
   - linkedin.com/in/yelghali
 duration_minutes: 120
 tags: azure, api management, microsoft foundry, agent framework, openai, mcp, toolbox, a2a, managed identity
+navigation_levels: 2
+navigation_numbering: true
 sections_title:
   - Introduction
-  - Prerequisites and deployment
-  - Scenario 1 - model through APIM
-  - Scenario 2 - raw MCP through APIM
-  - Scenario 3 - Foundry Toolbox through APIM
-  - Scenario 4 - Foundry agent through APIM
-  - Scenario 5 - enterprise capstone
-  - Security, limits, and cleanup
+  - Deploy the lab
+  - "Scenario 1: Model"
+  - "Scenario 2: Raw MCP"
+  - "Scenario 3: Toolbox"
+  - "Scenario 4: A2A agent"
+  - "Scenario 5: Capstone"
+  - Security and cleanup
 ---
 
 <style>
@@ -70,6 +72,8 @@ After validation, APIM terminates that credential. It uses its own managed ident
 | Toolbox publisher project | Own the versioned Toolbox and calls raw MCP through APIM with its project identity. |
 | Foundry app project | Hosts the second consumer and its model, MCP, Toolbox, and A2A connections. |
 | APIM Standard v2 | Validates callers, routes protocols, load-balances models, rewrites A2A cards, and establishes backend identity. |
+
+---
 
 # Prerequisites and deployment
 
@@ -147,6 +151,8 @@ $config.enterpriseAgentApimUrl
 
 You should see one APIM hostname and four paths. Do not look for or create an APIM subscription key.
 
+---
+
 # Scenario 1 - model through APIM
 
 ![A local MAF agent and a Foundry-hosted agent call the same keyless APIM model API. APIM uses managed identity to call a two-region Foundry backend pool.](assets/model-two-consumers.svg)
@@ -202,6 +208,8 @@ $env:CONCURRENCY = "15"
 
 The test fails if any request does not return HTTP 200. It intentionally consumes model quota, so use it only when you want to exercise the circuit breaker.
 
+---
+
 # Scenario 2 - raw MCP through APIM
 
 ![A local MAF agent and a Foundry-hosted agent call a streamable HTTP MCP API on APIM. APIM validates each caller and removes the token before forwarding to Microsoft Learn.](assets/raw-mcp-two-consumers.svg)
@@ -237,6 +245,8 @@ Both agents use the Scenario 1 model path, invoke Microsoft Learn through APIM, 
 
 The owning files are `src/test/scenario2_maf_mcp_apim.py`, `src/test/scenario2_foundry_mcp_apim.py`, and `infra/two-consumer-apim.bicep`.
 
+---
+
 # Scenario 3 - Foundry Toolbox through APIM
 
 ![Both consumers call a Foundry Toolbox through APIM. The Toolbox then calls the raw MCP APIM surface with its own project managed identity.](assets/toolbox-two-consumers.svg)
@@ -271,6 +281,8 @@ The local MAF application consumes the Toolbox as an MCP server. The Foundry app
 > In the currently verified preview combination, Foundry Agent Service returns HTTP 500 when this Toolbox is paired with the `ApiManagement` connected model. Scenario 3b therefore uses the app project's native `gpt-4o-mini` driver while the **Toolbox still enters and exits through APIM**. Raw MCP plus the connected APIM model works in Scenario 2b.
 
 The implementation is in `src/test/setup_foundry_toolbox.py`, the two `scenario3_*.py` files, and the Toolbox backend/API section of `infra/two-consumer-apim.bicep`.
+
+---
 
 # Scenario 4 - Foundry agent through APIM
 
@@ -308,6 +320,8 @@ The local client requests the v1.0 card explicitly. Foundry Agent Service uses t
 
 See `infra/enterprise-foundry-agent-apim.bicep` for the operations and policies, and `src/test/setup_enterprise_foundry_agent.py` for publisher-side agent creation and incoming A2A enablement.
 
+---
+
 # Scenario 5 - enterprise capstone
 
 ![Both consumers compose the APIM model, Toolbox, and enterprise A2A surfaces to answer one question with research and governance advice.](assets/capstone-two-consumers.svg)
@@ -334,6 +348,8 @@ Scenario 5a instruments its local HTTP client and specialist wrapper. It fails u
 Scenario 5b creates one Foundry agent version with `MCPTool` and `A2APreviewTool`, then runs a directed research turn followed by a specialist-advice turn. It uses the native driver for the same preview limitation described in Scenario 3.
 
 When `KEEP_AGENT=0`, both scripts delete temporary conversations and agent versions. The full runner sets this value automatically.
+
+---
 
 # Security, limits, and cleanup
 
