@@ -14,6 +14,7 @@
                 <audience>https://cognitiveservices.azure.com</audience>
                 <audience>https://cognitiveservices.azure.com/</audience>
             </audiences>
+            {caller-authorization}
         </validate-azure-ad-token>
         <!-- Route to the load-balanced backend pool (or single backend). The {backend-id} token is replaced at deploy time. -->
         <set-backend-service backend-id="{backend-id}" />

@@ -8,19 +8,24 @@ by the APIM retry policy) and traffic fall back to the priority-2 backend.
 
 Usage:
     set APIM_GATEWAY_URL=https://apim-xxxx.azure-api.net
-    set APIM_API_KEY=<subscription key>
     python test_load_balancing.py
 """
 import os
 import time
 import json
 import requests
+from azure.identity import DefaultAzureCredential
+
+import scenario_config as cfg
 
 GATEWAY_URL = os.environ["APIM_GATEWAY_URL"].rstrip("/")
-API_KEY = os.environ["APIM_API_KEY"]
-API_PATH = os.environ.get("INFERENCE_API_PATH", "inference")
+API_PATH = os.environ.get("INFERENCE_API_PATH", "inference-mi")
 MODEL = os.environ.get("MODEL", "gpt-4o-mini")
 API_VERSION = os.environ.get("API_VERSION", "2024-10-21")
+SCOPE = os.environ.get(
+    "APIM_INBOUND_SCOPE",
+    "https://cognitiveservices.azure.com/.default",
+)
 
 RUNS = int(os.environ.get("RUNS", "20"))
 SLEEP_MS = int(os.environ.get("SLEEP_MS", "100"))
@@ -34,9 +39,15 @@ messages = {
 }
 
 session = requests.Session()
-session.headers.update({"api-key": API_KEY, "Content-Type": "application/json"})
+credential = DefaultAzureCredential(process_timeout=cfg.credential_process_timeout())
+token = credential.get_token(SCOPE)
+session.headers.update({
+    "Authorization": f"Bearer {token.token}",
+    "Content-Type": "application/json",
+})
 
 region_counts = {}
+failures = []
 try:
     for i in range(RUNS):
         start = time.time()
@@ -47,9 +58,13 @@ try:
         print(f"Run {i + 1:>2}/{RUNS}  status={resp.status_code}  {elapsed:5.2f}s  region={region}")
         if resp.status_code != 200:
             print(f"    body: {resp.text[:200]}")
+            failures.append((resp.status_code, resp.text[:200]))
         time.sleep(SLEEP_MS / 1000)
 finally:
     session.close()
+    credential.close()
 
 print("\nRegion distribution:")
 print(json.dumps(region_counts, indent=2))
+if failures:
+    raise SystemExit(f"{len(failures)} request(s) failed.")

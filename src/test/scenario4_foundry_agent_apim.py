@@ -13,8 +13,8 @@ import scenario_config as cfg  # noqa: E402
 import scenario_lib as s  # noqa: E402
 from azure.ai.projects.models import A2APreviewTool, PromptAgentDefinition  # noqa: E402
 
-ENDPOINT = cfg.require("sc2ProjectEndpoint", "SC2_PROJECT_ENDPOINT")
-DRIVER_MODEL = cfg.get("sc2DriverModel", "SC2_DRIVER_MODEL", "gpt-4o-mini")
+ENDPOINT = cfg.require("appProjectEndpoint", "APP_PROJECT_ENDPOINT")
+DRIVER_MODEL = cfg.get("appDriverModel", "APP_DRIVER_MODEL", "gpt-4o-mini")
 A2A_APIM_URL = cfg.require("enterpriseAgentApimUrl", "ENTERPRISE_AGENT_APIM_URL")
 # Foundry resolves the agent card with urljoin, which drops the last path segment unless the
 # base URL ends with a slash. Discovery must therefore use the trailing-slash form.
@@ -59,7 +59,7 @@ def main() -> None:
         ),
         tools=[a2a_tool],
     )
-    s.run_subscenario(
+    succeeded = s.run_subscenario(
         project,
         results,
         "sc4-foundry-consumer-enterprise-agent-apim",
@@ -74,6 +74,8 @@ def main() -> None:
         ],
     )
     s.print_summary("Scenario 4b - Foundry consumer app agent", results)
+    if not succeeded:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

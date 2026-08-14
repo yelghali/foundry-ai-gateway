@@ -9,7 +9,6 @@ priority-1 region to the priority-2 region.
 
 Usage:
     set APIM_GATEWAY_URL=https://apim-xxxx.azure-api.net
-    set APIM_API_KEY=<subscription key>
     python test_burst.py
 """
 import os
@@ -18,12 +17,18 @@ import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
+from azure.identity import DefaultAzureCredential
+
+import scenario_config as cfg
 
 GATEWAY_URL = os.environ["APIM_GATEWAY_URL"].rstrip("/")
-API_KEY = os.environ["APIM_API_KEY"]
-API_PATH = os.environ.get("INFERENCE_API_PATH", "inference")
+API_PATH = os.environ.get("INFERENCE_API_PATH", "inference-mi")
 MODEL = os.environ.get("MODEL", "gpt-4o-mini")
 API_VERSION = os.environ.get("API_VERSION", "2024-10-21")
+SCOPE = os.environ.get(
+    "APIM_INBOUND_SCOPE",
+    "https://cognitiveservices.azure.com/.default",
+)
 
 TOTAL = int(os.environ.get("TOTAL", "60"))
 CONCURRENCY = int(os.environ.get("CONCURRENCY", "15"))
@@ -40,7 +45,12 @@ payload = {
     "max_tokens": 200,
 }
 
-headers = {"api-key": API_KEY, "Content-Type": "application/json"}
+credential = DefaultAzureCredential(process_timeout=cfg.credential_process_timeout())
+token = credential.get_token(SCOPE)
+headers = {
+    "Authorization": f"Bearer {token.token}",
+    "Content-Type": "application/json",
+}
 
 
 def fire(i: int):
@@ -54,10 +64,13 @@ def fire(i: int):
 
 
 results = []
-with ThreadPoolExecutor(max_workers=CONCURRENCY) as pool:
-    futures = [pool.submit(fire, i) for i in range(TOTAL)]
-    for fut in as_completed(futures):
-        results.append(fut.result())
+try:
+    with ThreadPoolExecutor(max_workers=CONCURRENCY) as pool:
+        futures = [pool.submit(fire, i) for i in range(TOTAL)]
+        for fut in as_completed(futures):
+            results.append(fut.result())
+finally:
+    credential.close()
 
 results.sort(key=lambda x: x[0])
 region_counts = {}
@@ -74,3 +87,5 @@ print("\nStatus distribution:")
 print(json.dumps(status_counts, indent=2))
 print("\nRegion distribution (which backend served each request):")
 print(json.dumps(region_counts, indent=2))
+if status_counts != {"200": TOTAL}:
+    raise SystemExit("One or more burst requests failed.")

@@ -1,14 +1,8 @@
-"""
-Tiny config loader shared by the consumption scenarios.
+"""Configuration loader shared by the keyless two-consumer APIM scenarios.
 
-`deploy-client-foundry.ps1` writes a secret-free `infra/scenario-outputs.json` with the
-per-scenario endpoints, connection IDs, gateway URLs and model references. The scenario
-scripts read it through this module so a replay is just "deploy, then run the scripts" —
-no long list of env vars to export by hand.
-
-Precedence for every value: explicit environment variable > scenario-outputs.json > default.
-Secrets are never written to the file: the Foundry scenarios authenticate with
-DefaultAzureCredential, and Scenario 0 still reads APIM_API_KEY from the environment.
+The deployment scripts write a secret-free ``infra/scenario-outputs.json`` containing
+endpoints, project connection IDs, gateway URLs, and model references. Resolution order is
+environment variable, then the outputs file, then the caller's default.
 """
 
 import json
@@ -48,7 +42,7 @@ def require(key: str, env: str | None = None):
     """Like get(), but raise a clear error if the value is missing."""
     value = get(key, env)
     if not value:
-        hint = f" (set {env} or run infra/deploy-client-foundry.ps1)" if env else ""
+        hint = f" (set {env} or run the infra deployment scripts)" if env else ""
         raise SystemExit(f"Missing required config '{key}'{hint}.")
     return value
 

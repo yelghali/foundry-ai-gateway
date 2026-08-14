@@ -14,7 +14,7 @@
 param(
     [string]$ResourceGroup = "lab-foundry-ai-gateway",
     [string]$MainDeploymentName = "backend-pool-load-balancing",
-    [string]$ConsumerDeploymentName = "client-foundry-sc2",
+    [string]$ConsumerDeploymentName = "foundry-consumers",
     [string]$DeploymentName = "enterprise-foundry-agent-apim",
     [string]$EnterpriseProjectName = "aigateway-foundry1",
     [string]$EnterpriseAgentName = "enterprise-specialist",
@@ -52,10 +52,10 @@ $apimName = $main.apimServiceName.value
 $enterprise = @($main.foundryAccounts.value)[0]
 $enterpriseAccountName = $enterprise.name
 $enterpriseProjectEndpoint = "$(To-ServicesEndpoint $enterprise.endpoint)/api/projects/$EnterpriseProjectName"
-$consumerAccountName = $consumer.accountName.value
+$consumerAccountName = $consumer.appFoundryAccountName.value
 
 if (-not $apimName -or -not $enterpriseAccountName -or -not $consumerAccountName) {
-    throw "Run deploy.ps1 and deploy-client-foundry.ps1 before this extension."
+    throw "Run deploy.ps1 and deploy-foundry-consumers.ps1 before this extension."
 }
 
 if (-not $LocalCallerObjectId) {

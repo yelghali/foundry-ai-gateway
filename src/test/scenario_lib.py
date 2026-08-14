@@ -1,29 +1,11 @@
-"""
-Shared helpers for the three Foundry-based consumption scenarios (1, 2, 3).
+"""Shared helpers for the Foundry-hosted side of the two-consumer APIM scenarios.
 
-Each scenario now runs against its OWN dedicated client Foundry account, because the
-native AI Gateway integration is configured at the Foundry *resource* level:
+Each script creates a prompt-agent version in the consumer Foundry project, invokes one
+turn, and records PASS or FAIL. Endpoints and project-managed-identity connection IDs come
+from ``infra/scenario-outputs.json``; environment variables can override them.
 
-    Scenario 1  client-foundry-sc1   CUSTOM (APIM)      managed-identity-first, key fallback
-    Scenario 2  client-foundry-sc2   AI GATEWAY NATIVE  Foundry's ApiManagement connection
-    Scenario 3  client-foundry-sc3   AI GATEWAY BYO     ModelGateway connection to LiteLLM
-
-Every scenario runs the SAME three sub-scenarios against the SAME remote targets:
-
-    a) MODEL  -> the enterprise gpt-4o-mini (behind APIM, load balanced across 2 regions)
-    b) TOOL   -> the public Microsoft Learn MCP server (governed by the scenario's gateway)
-    c) A2A    -> the remote "dummy specialist" Agent2Agent agent
-
-so the only thing that changes between scenarios is HOW the client connects, not WHAT it
-calls. Each sub-scenario creates its own clearly-named prompt agent, runs one turn, and
-records a PASS/FAIL line (a blocked path is reported honestly instead of aborting the run).
-
-The per-scenario endpoints, connection IDs and gateway URLs are read from
-infra/scenario-outputs.json (written by deploy-client-foundry.ps1); env vars override.
-See scenario_config.py for the precedence rules.
-
-    KEEP_AGENT   set to 0 to delete agents after the run; default keeps them for
-                 portal viewing (Build > Agents)
+Set ``KEEP_AGENT=0`` to delete conversations and agent versions after a run. The end-to-end
+runner does this by default; direct script runs preserve agents for portal inspection.
 """
 
 import os
@@ -133,6 +115,8 @@ def run_subscenario(project, results, label, definition, question, *, title=None
             extra_body={"agent_reference": {"name": agent.name, "type": "agent_reference"}},
         )
         text = (response.output_text or "").strip().replace("\n", " ")
+        if not text:
+            raise RuntimeError("Agent returned an empty response.")
         results.append((label, True, text[:160]))
         _print_record(label, True, text[:160])
         return True
