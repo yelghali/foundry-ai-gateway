@@ -23,8 +23,8 @@ $scripts = @(
     "scenario3_foundry_toolbox_apim.py",
     "scenario4_maf_enterprise_agent_apim.py",
     "scenario4_foundry_agent_apim.py",
-    "scenario5_maf_capstone.py",
-    "scenario5_foundry_capstone.py",
+    "scenario5_maf_combined_workflow.py",
+    "scenario5_foundry_combined_workflow.py",
     "scenario_security_boundaries.py"
 )
 

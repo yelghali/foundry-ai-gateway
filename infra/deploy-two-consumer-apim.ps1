@@ -35,7 +35,24 @@ function Get-ProjectEndpoint([string]$accountName, [string]$projectName) {
     return "$servicesEndpoint/api/projects/$projectName"
 }
 
-$main = & $az deployment group show --name $MainDeploymentName --resource-group $ResourceGroup --query properties.outputs | ConvertFrom-Json
+$mainOutput = & $az deployment group show --name $MainDeploymentName --resource-group $ResourceGroup --query properties.outputs
+if ($LASTEXITCODE -ne 0 -or $null -eq $mainOutput) {
+    throw "Could not read the core deployment outputs."
+}
+$main = $mainOutput | ConvertFrom-Json
+$requiredCoreOutputs = @(
+    "apimServiceId",
+    "apimServiceName",
+    "apimResourceGatewayURL",
+    "apimLogAnalyticsWorkspaceId",
+    "apimLogAnalyticsWorkspaceName",
+    "apimDiagnosticSettingsName"
+)
+foreach ($name in $requiredCoreOutputs) {
+    if (-not $main.$name.value) {
+        throw "Core deployment output '$name' is missing."
+    }
+}
 $apimName = $main.apimServiceName.value
 $toolboxAccount = Find-Account $ToolboxAccountPrefix
 $modelConsumerAccount = Find-Account $ModelConsumerAccountPrefix
@@ -96,10 +113,43 @@ $exitCode = $LASTEXITCODE
 Remove-Item $paramsPath -ErrorAction SilentlyContinue
 if ($exitCode -ne 0) { throw "Two-consumer APIM deployment failed." }
 
-$out = & $az deployment group show --name $DeploymentName --resource-group $ResourceGroup --query properties.outputs | ConvertFrom-Json
+$extensionOutput = & $az deployment group show --name $DeploymentName --resource-group $ResourceGroup --query properties.outputs
+if ($LASTEXITCODE -ne 0 -or $null -eq $extensionOutput) {
+    throw "Could not read the two-consumer deployment outputs."
+}
+$out = $extensionOutput | ConvertFrom-Json
+$requiredExtensionOutputs = @(
+    "allowedCallerObjectIds",
+    "modelApiUrl",
+    "mcpApiUrl",
+    "toolboxApiUrl",
+    "toolboxConnectionId",
+    "mcpConnectionId",
+    "appMcpConnectionId",
+    "appToolboxConnectionId",
+    "apimPrincipalId"
+)
+foreach ($name in $requiredExtensionOutputs) {
+    if (-not $out.$name.value) {
+        throw "Two-consumer deployment output '$name' is missing."
+    }
+}
 $config = if (Test-Path $outputsFile) { Get-Content $outputsFile -Raw -Encoding UTF8 | ConvertFrom-Json } else { [pscustomobject]@{} }
+$apimServiceId = $main.apimServiceId.value
+$hasExistingConfig = @($config.PSObject.Properties).Count -gt 0
+$manifestMatchesEnvironment = $config.resourceGroup -eq $ResourceGroup -and $config.apimServiceId -eq $apimServiceId
+if ($hasExistingConfig -and -not $manifestMatchesEnvironment) {
+    $config = [pscustomobject]@{}
+}
+$gateway = $main.apimResourceGatewayURL.value
 $values = [ordered]@{
-    apimGatewayUrl = "https://$apimName.azure-api.net"
+    resourceGroup = $ResourceGroup
+    apimServiceId = $apimServiceId
+    apimServiceName = $apimName
+    apimGatewayUrl = $gateway
+    apimLogAnalyticsWorkspaceId = $main.apimLogAnalyticsWorkspaceId.value
+    apimLogAnalyticsWorkspaceName = $main.apimLogAnalyticsWorkspaceName.value
+    apimDiagnosticSettingsName = $main.apimDiagnosticSettingsName.value
     modelApimMiUrl = $out.modelApiUrl.value
     modelApimMiPath = "inference-mi"
     enterpriseModel = "gpt-4o-mini"
@@ -129,7 +179,9 @@ $values = [ordered]@{
 foreach ($entry in $values.GetEnumerator()) {
     $config | Add-Member -NotePropertyName $entry.Key -NotePropertyValue $entry.Value -Force
 }
-$config | ConvertTo-Json -Depth 10 | Set-Content $outputsFile -Encoding utf8
+$tempOutputsFile = "$outputsFile.tmp"
+$config | ConvertTo-Json -Depth 10 | Set-Content $tempOutputsFile -Encoding utf8
+Move-Item $tempOutputsFile $outputsFile -Force
 
 Write-Host "`nTwo-consumer APIM surfaces are ready." -ForegroundColor Green
 Write-Host "  Model   : $($out.modelApiUrl.value)"

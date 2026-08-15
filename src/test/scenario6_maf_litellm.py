@@ -1,6 +1,7 @@
 """Scenario 6a: local Microsoft Agent Framework consumes LiteLLM model, MCP, and A2A."""
 
 import asyncio
+import json
 import os
 import sys
 
@@ -30,12 +31,18 @@ def response_text(response) -> str:
 
 
 async def main() -> None:
-    mcp_request_count = 0
+    mcp_tool_call_count = 0
 
     async def observe_request(request: httpx.Request) -> None:
-        nonlocal mcp_request_count
-        if "/mcp" in request.url.path:
-            mcp_request_count += 1
+        nonlocal mcp_tool_call_count
+        if request.method != "POST" or "/mcp" not in request.url.path:
+            return
+        try:
+            payload = json.loads(request.content)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return
+        if isinstance(payload, dict) and payload.get("method") == "tools/call":
+            mcp_tool_call_count += 1
 
     print("Scenario 6a - local MAF -> LiteLLM BYO gateway")
     print(f"  Model : {BASE_URL}/v1 ({MODEL})")
@@ -72,7 +79,6 @@ async def main() -> None:
             approval_mode="never_require",
         )
         async with mcp:
-            baseline_mcp_requests = mcp_request_count
             tool_agent = model_client.as_agent(
                 name="sc6-maf-litellm-mcp",
                 instructions=(
@@ -84,7 +90,7 @@ async def main() -> None:
                 "Search Microsoft Learn: what is Azure API Management?"
             )
         tool_text = response_text(tool_result)
-        if not tool_text or mcp_request_count <= baseline_mcp_requests:
+        if not tool_text or mcp_tool_call_count < 1:
             raise RuntimeError("The MAF agent did not complete a LiteLLM MCP tool call.")
         print(f"  MCP   : PASS - {tool_text}")
 

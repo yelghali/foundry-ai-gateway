@@ -1,4 +1,4 @@
-"""Foundry capstone: one hosted agent uses APIM-published Toolbox and A2A assets."""
+"""Foundry combined workflow using APIM-published Toolbox and A2A assets."""
 
 import os
 import sys
@@ -24,6 +24,19 @@ A2A_CONNECTION_ID = cfg.require(
     "enterpriseAgentConsumerConnectionId",
     "ENTERPRISE_AGENT_CONSUMER_CONNECTION_ID",
 )
+
+
+def output_field(item, field: str):
+    return item.get(field) if isinstance(item, dict) else getattr(item, field, None)
+
+
+def completed_items(response, item_type: str) -> list:
+    return [
+        item
+        for item in response.output
+        if output_field(item, "type") == item_type
+        and output_field(item, "status") == "completed"
+    ]
 
 
 def main() -> None:
@@ -58,7 +71,7 @@ def main() -> None:
             ],
         )
         agent = project.agents.create_version(
-            agent_name="sc5-foundry-enterprise-capstone",
+            agent_name="sc5-foundry-combined-workflow",
             definition=definition,
         )
         conversation = openai_client.conversations.create()
@@ -81,11 +94,36 @@ def main() -> None:
         research_text = (research.output_text or "").strip().replace("\n", " ")
         advice_text = (advice.output_text or "").strip().replace("\n", " ")
         if not research_text or not advice_text:
-            raise RuntimeError("One of the capstone tool turns returned an empty response.")
-        print("Scenario 5b - Foundry-hosted enterprise capstone")
+            raise RuntimeError("One of the combined-workflow tool turns returned an empty response.")
+        toolbox_calls = [
+            item
+            for item in completed_items(research, "mcp_call")
+            if output_field(item, "server_label") == "research_toolbox"
+        ]
+        if not toolbox_calls:
+            raise RuntimeError("The research turn did not complete a Toolbox MCP call.")
+        a2a_calls = completed_items(advice, "a2a_preview_call")
+        a2a_outputs = completed_items(advice, "a2a_preview_call_output")
+        a2a_names = {
+            output_field(item, "name")
+            for item in a2a_calls
+            if output_field(item, "name")
+        }
+        completed_a2a_names = {
+            output_field(item, "name")
+            for item in a2a_outputs
+            if output_field(item, "name")
+        }
+        invoked_a2a_names = a2a_names & completed_a2a_names
+        if not invoked_a2a_names:
+            raise RuntimeError("The advice turn did not complete an A2A call and result pair.")
+        toolbox_name = output_field(toolbox_calls[0], "name")
+        a2a_name = sorted(invoked_a2a_names)[0]
+        print("Scenario 5b - Foundry model + Toolbox + A2A workflow")
         print(f"  Project : {ENDPOINT}")
         print(f"  Toolbox : {TOOLBOX_APIM_URL}")
         print(f"  A2A     : {A2A_APIM_URL}")
+        print(f"  Calls   : Toolbox={toolbox_name}; A2A={a2a_name}")
         print(f"  Research: {research_text}")
         print(f"  PASS    : {advice_text}")
     finally:

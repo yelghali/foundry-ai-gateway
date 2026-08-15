@@ -4,7 +4,8 @@
 #>
 param(
     [switch]$KeepAgents,
-    [string]$TerraformDirectory = ""
+    [string]$TerraformDirectory = "",
+    [switch]$UseTerraformAdminKey
 )
 
 $ErrorActionPreference = "Stop"
@@ -18,21 +19,38 @@ if (-not (Test-Path $python)) {
     throw "Missing src/test/.venv. Create it and install src/test/requirements.txt."
 }
 if (-not (Test-Path $outputsFile)) {
-    throw "Missing infra/scenario-outputs.json. Run infra/deploy-litellm-scenario.ps1 first."
+    throw "Missing infra/scenario-outputs.json. Ask the facilitator to refresh the predeployed lab metadata."
 }
 $config = Get-Content $outputsFile -Raw -Encoding UTF8 | ConvertFrom-Json
-foreach ($name in "litellmBaseUrl", "litellmMcpUrl", "litellmA2aShimUrl") {
+foreach ($name in "litellmBaseUrl", "litellmModel", "litellmMcpUrl", "litellmA2aShimUrl") {
     if (-not $config.$name) {
-        throw "Missing '$name'. Run infra/deploy-litellm-scenario.ps1 first."
+        throw "Missing '$name'. Ask the facilitator to refresh the predeployed lab metadata."
     }
 }
 
-$tfArg = "-chdir=$TerraformDirectory"
-$env:LITELLM_MASTER_KEY = (& terraform $tfArg output -raw litellm_master_key).Trim()
-$env:LITELLM_MODEL = (& terraform $tfArg output -raw public_model_name).Trim()
-$env:KEEP_AGENT = if ($KeepAgents) { "1" } else { "0" }
-
+$loadedAdminKey = $false
+$previousMasterKey = [Environment]::GetEnvironmentVariable("LITELLM_MASTER_KEY", "Process")
+$previousKeepAgent = [Environment]::GetEnvironmentVariable("KEEP_AGENT", "Process")
 try {
+    if (-not $env:LITELLM_API_KEY) {
+        if (-not $UseTerraformAdminKey) {
+            throw "Set LITELLM_API_KEY to a facilitator-issued scoped key. Maintainers with local Terraform state may pass -UseTerraformAdminKey."
+        }
+        $tfArg = "-chdir=$TerraformDirectory"
+        $masterKeyOutput = @(& terraform $tfArg output -raw litellm_master_key)
+        if ($LASTEXITCODE -ne 0 -or $null -eq $masterKeyOutput) {
+            throw "Could not read the LiteLLM administrator key from Terraform state."
+        }
+        $masterKey = ($masterKeyOutput | Out-String).Trim()
+        if (-not $masterKey) {
+            throw "The LiteLLM administrator key Terraform output is empty."
+        }
+        $loadedAdminKey = $true
+        $env:LITELLM_MASTER_KEY = $masterKey
+        $masterKey = $null
+    }
+    $env:KEEP_AGENT = if ($KeepAgents) { "1" } else { "0" }
+
     foreach ($script in @(
         "scenario6_maf_litellm.py",
         "scenario6_foundry_litellm.py",
@@ -45,7 +63,18 @@ try {
         }
     }
 } finally {
-    Remove-Item Env:LITELLM_MASTER_KEY, Env:LITELLM_MODEL, Env:KEEP_AGENT -ErrorAction SilentlyContinue
+    if ($loadedAdminKey) {
+        if ($null -eq $previousMasterKey) {
+            Remove-Item Env:LITELLM_MASTER_KEY -ErrorAction SilentlyContinue
+        } else {
+            $env:LITELLM_MASTER_KEY = $previousMasterKey
+        }
+    }
+    if ($null -eq $previousKeepAgent) {
+        Remove-Item Env:KEEP_AGENT -ErrorAction SilentlyContinue
+    } else {
+        $env:KEEP_AGENT = $previousKeepAgent
+    }
 }
 
 Write-Host "`nOptional LiteLLM two-consumer scenario passed." -ForegroundColor Green

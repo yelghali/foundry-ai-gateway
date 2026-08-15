@@ -25,14 +25,8 @@ param modelVersion string = '2025-11-13'
 @description('ID of the agent registered in the LiteLLM A2A Agent Gateway.')
 param a2aAgentId string
 
-@description('Create the ownership-bound ModelGateway connection when absent.')
-param createModelConnection bool = true
-
-@description('Create the ownership-bound MCP connection when absent.')
-param createMcpConnection bool = true
-
-@description('Create the ownership-bound RemoteA2A connection when absent.')
-param createA2aConnection bool = true
+@description('Non-secret marker that forces the A2A shim to reload rotated credentials.')
+param credentialRevision string
 
 var suffix = uniqueString(resourceGroup().id)
 var shimAppName = 'ca-a2a-litellm-${suffix}'
@@ -62,7 +56,7 @@ resource managedEnv 'Microsoft.App/managedEnvironments@2024-03-01' existing = {
   name: 'cae-a2a-${suffix}'
 }
 
-resource modelGatewayConnection 'Microsoft.CognitiveServices/accounts/connections@2025-04-01-preview' = if (createModelConnection) {
+resource modelGatewayConnection 'Microsoft.CognitiveServices/accounts/connections@2025-04-01-preview' = {
   parent: appFoundry
   name: modelConnectionName
   properties: {
@@ -80,7 +74,7 @@ resource modelGatewayConnection 'Microsoft.CognitiveServices/accounts/connection
   }
 }
 
-resource mcpConnection 'Microsoft.CognitiveServices/accounts/projects/connections@2025-04-01-preview' = if (createMcpConnection) {
+resource mcpConnection 'Microsoft.CognitiveServices/accounts/projects/connections@2025-04-01-preview' = {
   parent: appProject
   name: mcpConnectionName
   properties: {
@@ -113,10 +107,12 @@ resource shimApp 'Microsoft.App/containerApps@2024-03-01' = {
       secrets: [
         {
           name: 'agent-code'
+          #disable-next-line use-secure-value-for-secure-inputs
           value: agentCode
         }
         {
           name: 'gateway-auth'
+          #disable-next-line use-secure-value-for-secure-inputs
           value: 'Bearer ${litellmApiKey}'
         }
       ]
@@ -159,6 +155,10 @@ resource shimApp 'Microsoft.App/containerApps@2024-03-01' = {
               name: 'A2A_CODE_SHA256'
               value: agentCodeHash
             }
+            {
+              name: 'A2A_CREDENTIAL_REVISION'
+              value: credentialRevision
+            }
           ]
           volumeMounts: [
             {
@@ -188,7 +188,7 @@ resource shimApp 'Microsoft.App/containerApps@2024-03-01' = {
   }
 }
 
-resource a2aConnection 'Microsoft.CognitiveServices/accounts/projects/connections@2025-04-01-preview' = if (createA2aConnection) {
+resource a2aConnection 'Microsoft.CognitiveServices/accounts/projects/connections@2025-04-01-preview' = {
   parent: appProject
   name: a2aConnectionName
   properties: {

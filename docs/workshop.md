@@ -15,12 +15,13 @@ navigation_levels: 2
 navigation_numbering: true
 sections_title:
   - Introduction
-  - Deploy the lab
+  - Inspect the deployed lab
   - "Scenario 1: Model"
   - "Scenario 2: Raw MCP"
   - "Scenario 3: Toolbox"
   - "Scenario 4: A2A agent"
-  - "Scenario 5: Capstone"
+  - "Scenario 5: Combined workflow"
+  - APIM observability
   - "Scenario 6: LiteLLM BYOM"
   - Security and cleanup
 ---
@@ -48,7 +49,8 @@ Scenario 6 is an optional comparison. It registers a customer-operated LiteLLM i
 | 2. Raw MCP | `/learn-mcp-mi/mcp` | Yes | `MCPTool` project connection | Microsoft Learn MCP |
 | 3. Toolbox | `/toolboxes/research/mcp` | Yes | `MCPTool` project connection | Versioned Foundry Toolbox |
 | 4. A2A agent | `/enterprise-agents/enterprise-specialist/` | Yes | `A2APreviewTool` project connection | Foundry-hosted prompt agent |
-| 5. Capstone | Model + Toolbox + A2A | Yes | Yes | All three assets |
+| 5. Combined workflow | APIM model + Toolbox + A2A | All three through APIM | Toolbox + A2A through APIM; native model driver | APIM model pool plus Toolbox and A2A assets |
+| Observe APIM | Gateway request metadata + metrics | Generated traffic | Portal or PowerShell | Resource-specific Log Analytics tables |
 | 6. LiteLLM BYOM (optional) | `/v1`, `/mcp/`, `/a2a/{id}` | Yes | `ModelGateway`, `MCPTool`, `A2APreviewTool` | Private Foundry models, Microsoft Learn MCP, dummy A2A agent |
 
 </div>
@@ -74,79 +76,99 @@ After validation, APIM terminates that credential. It uses its own managed ident
 | Toolbox publisher project | Own the versioned Toolbox and calls raw MCP through APIM with its project identity. |
 | Foundry app project | Hosts the second consumer and its model, MCP, Toolbox, and A2A connections. |
 | APIM Standard v2 | Validates callers, routes protocols, load-balances models, rewrites A2A cards, and establishes backend identity. |
+| Log Analytics workspace | Receives current APIM request metadata and metrics; content-bearing rows collected by an earlier setting remain subject to retention. |
 | LiteLLM stack (optional) | Provides an OpenAI-compatible model gateway plus MCP and A2A gateways; uses a user-assigned identity for private Foundry model access. |
 
 </div>
 
+## Source documentation
+
+- [AI gateway capabilities in Azure API Management](https://learn.microsoft.com/azure/api-management/genai-gateway-capabilities)
+- [Bring your own model to Foundry Agent Service](https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway)
+- [What is Foundry Toolbox?](https://learn.microsoft.com/azure/foundry/agents/concepts/toolbox-overview)
+- [Connect Foundry agents to A2A endpoints](https://learn.microsoft.com/azure/foundry/agents/how-to/tools/agent-to-agent)
+
 ---
 
-# Prerequisites and deployment
+# Inspect the deployed lab
 
-![Four ordered deployments create the core gateway, two Foundry consumer projects, shared APIM surfaces, and the enterprise A2A agent.](assets/deployment-sequence.svg)
+![Learners inspect the predeployed APIM, Foundry projects, connections, and diagnostics before running the consumer scripts.](assets/inspect-deployed-lab.svg)
 
-## Prerequisites
+The lab environment is already deployed. You will inspect its configuration in Azure, run the two consumers, and correlate those calls with APIM telemetry. **Do not run the deployment scripts during the workshop.**
 
-You need:
+## What you need
 
-- An Azure subscription where you can create resources and role assignments. `Owner`, or `Contributor` plus `Role Based Access Control Administrator`, is sufficient.
-- Azure CLI with Bicep support.
-- Python 3.11 or later.
-- PowerShell 5.1 or PowerShell 7.
-- `gpt-4o-mini` quota in `eastus2` and `swedencentral`.
+- Access to the facilitator's Azure subscription and `lab-foundry-ai-gateway` resource group.
+- Azure CLI, Python 3.11 or later, and PowerShell 5.1 or PowerShell 7.
+- A signed-in identity that the facilitator added to APIM's caller allowlist.
 
-Sign in and select the target subscription:
+Sign in, then confirm the selected subscription:
 
 ```powershell
 az login
-az account set --subscription "<subscription-id>"
 az account show --query "{name:name,id:id,tenantId:tenantId}" -o table
 ```
 
-If `az` is not on `PATH`, point the deployment scripts to it:
+If the resource group is not visible in that subscription, select the facilitator-provided subscription and check again:
+
+```powershell
+az account set --subscription "<facilitator-provided-subscription-id>"
+```
+
+If `az` is not on `PATH`, use the copy installed with the Azure SDK:
 
 ```powershell
 $env:AZ_CMD = "C:\Program Files\Microsoft SDKs\Azure\CLI2\wbin\az.cmd"
 ```
 
-## Create the Python environment
+## What is automated
 
-Run these commands from the repository root:
+No manual portal configuration is required to build this environment. The repository automates every persistent prerequisite, but it uses the correct management surface for each kind of object.
 
-```powershell
-python -m venv .\src\test\.venv
-& .\src\test\.venv\Scripts\python.exe -m pip install --upgrade pip
-& .\src\test\.venv\Scripts\python.exe -m pip install -r .\src\test\requirements.txt
-```
+<div style="max-width: 100%; overflow-x: auto;">
 
-The examples use `DefaultAzureCredential`. On a developer machine, it reuses the Azure CLI sign-in. In automation, use a workload identity and pass its object ID to the APIM deployment scripts.
+| Layer | Owning files | What they create | Lifetime |
+|---|---|---|---|
+| Core Azure control plane | `infra/main.bicep` | APIM and its identity, two Foundry model resources and deployments, the model backend pool/API, raw MCP backend, Log Analytics, and APIM diagnostic settings | Persistent IaC |
+| Consumer control plane | `infra/foundry-consumers.bicep` | Toolbox publisher project, Foundry app project, native driver models, and the `ApiManagement` model connection | Persistent IaC |
+| APIM tool surfaces | `infra/two-consumer-apim.bicep` | Caller allowlist, raw MCP and Toolbox APIs/backends/policies, role assignments, and project tool connections | Persistent IaC |
+| A2A facade | `infra/enterprise-foundry-agent-apim.bicep` | A2A API/backend/policies, least-privilege role assignment, and the app project's `RemoteA2A` connection | Persistent IaC |
+| Foundry data plane | `src/test/setup_foundry_toolbox.py`, `src/test/setup_enterprise_foundry_agent.py` | Immutable Toolbox versions and the `enterprise-specialist` prompt-agent definition with incoming A2A enabled | Repeatable setup code |
+| Runtime examples | `src/test/scenario*.py` | Local calls plus temporary Foundry conversations and consumer agent versions | Deleted after each run unless kept |
 
-## Deploy the lab
+</div>
 
-Run the four deployments in order:
-
-```powershell
-.\infra\deploy.ps1
-.\infra\deploy-foundry-consumers.ps1
-.\infra\deploy-two-consumer-apim.ps1
-.\infra\deploy-enterprise-foundry-agent-apim.ps1
-```
-
-The scripts create or update these layers:
-
-1. `deploy.ps1` creates APIM, two enterprise Foundry accounts, two model deployments, the APIM model backend pool, and the raw MCP backend.
-2. `deploy-foundry-consumers.ps1` creates the Toolbox publisher and Foundry app projects. It also creates the app project's project-managed-identity `ApiManagement` model connection.
-3. `deploy-two-consumer-apim.ps1` tightens the caller allowlist and creates the raw MCP and Toolbox APIs plus project-scoped tool connections.
-4. `deploy-enterprise-foundry-agent-apim.ps1` publishes `enterprise-specialist`, enables incoming A2A, creates the APIM facade, and creates the app project's `RemoteA2A` connection.
-
-Deployment values are merged into `infra/scenario-outputs.json`. The file contains endpoints and resource IDs only; it contains no secrets.
+Bicep owns Azure Resource Manager resources. Toolbox versions and prompt-agent definitions are Foundry **data-plane** objects, so the setup scripts create them through the Foundry SDK. The PowerShell deployment entry points discover existing resources, invoke both layers in order, and merge secret-free IDs and URLs into `infra/scenario-outputs.json`.
 
 > [!NOTE]
-> Foundry project connections are ownership-bound. The repeatable scripts test whether each connection exists before trying to create it again.
+> Project connections are ownership-bound. The deployment scripts check whether they already exist before creating them, which makes a facilitator rebuild repeatable without replacing those connections.
 
-## Confirm the four APIs
+## Inspect the resource group
+
+Load the predeployed values and list the workshop resource types:
 
 ```powershell
 $config = Get-Content .\infra\scenario-outputs.json -Raw | ConvertFrom-Json
+
+az resource list `
+  --resource-group $config.resourceGroup `
+  --query "[].{Name:name,Type:type,Location:location}" `
+  --output table
+```
+
+In the Azure portal, open **Resource groups** > **lab-foundry-ai-gateway**. Find these persistent resources:
+
+- APIM Standard v2: `$($config.apimServiceName)`.
+- Log Analytics: `$($config.apimLogAnalyticsWorkspaceName)`.
+- Two enterprise Foundry model resources and two consumer Foundry resources.
+
+Open APIM and select **APIs**. The supported list contains the model, raw MCP, Toolbox, and enterprise A2A APIs. Each API has **Subscription required** disabled because the policies authorize Microsoft Entra identities instead.
+
+![The live predeployed APIM service shows the model, raw MCP, Foundry Toolbox, and enterprise A2A agent APIs.](assets/portal-apim-apis.png)
+
+## Confirm the four contracts
+
+```powershell
 $config.apimGatewayUrl
 $config.modelApimMiUrl
 $config.rawMcpApimUrl
@@ -154,7 +176,26 @@ $config.toolboxApimUrl
 $config.enterpriseAgentApimUrl
 ```
 
-You should see one APIM hostname and four paths. Do not look for or create an APIM subscription key.
+All values use one APIM hostname. Do not look for or create an APIM subscription key.
+
+## Prepare the local runner
+
+The checked-in examples use `DefaultAzureCredential`, which reuses your Azure CLI sign-in. Create the environment only if the facilitator has not prepared it:
+
+```powershell
+if (-not (Test-Path .\src\test\.venv)) {
+  python -m venv .\src\test\.venv
+}
+& .\src\test\.venv\Scripts\python.exe -m pip install -r .\src\test\requirements.txt
+$python = ".\src\test\.venv\Scripts\python.exe"
+```
+
+## Source documentation
+
+- [Create and manage Microsoft Foundry projects](https://learn.microsoft.com/azure/foundry/how-to/create-projects)
+- [Bicep documentation](https://learn.microsoft.com/azure/azure-resource-manager/bicep/)
+- [Managed identities in API Management](https://learn.microsoft.com/azure/api-management/api-management-howto-use-managed-service-identity)
+- [Add connections to a Foundry project](https://learn.microsoft.com/azure/foundry/how-to/connections-add)
 
 ---
 
@@ -173,6 +214,16 @@ apim-gateway-mi/gpt-4o-mini
 ```
 
 That name means `<connection-name>/<model-name>`. The `ApiManagement` connection uses the Foundry app project's managed identity; it does not store a key.
+
+## Inspect the deployed model path
+
+In the Azure portal:
+
+1. Open APIM > **APIs** > **Foundry inference (managed identity)**. Confirm the URL suffix is `inference-mi` and **Subscription required** is cleared.
+2. Open APIM > **Backends**. Inspect the two regional Foundry backends and their priority-based pool.
+3. Open the Foundry app project > **Management center** > **Connected resources**. Find `apim-gateway-mi` and confirm its authentication type is managed identity.
+
+![APIM lists the two regional Foundry inference backends used by the model pool.](assets/portal-apim-backends.png)
 
 ## Run both consumers
 
@@ -217,6 +268,13 @@ $env:CONCURRENCY = "15"
 
 The test fails if any request does not return HTTP 200. It intentionally consumes model quota, so use it only when you want to exercise the circuit breaker.
 
+## Source documentation
+
+- [Bring your own model through Azure API Management](https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway)
+- [Backends and load-balanced pools in API Management](https://learn.microsoft.com/azure/api-management/backends)
+- [Validate Microsoft Entra tokens in API Management](https://learn.microsoft.com/azure/api-management/validate-azure-ad-token-policy)
+- [Authenticate an APIM backend with managed identity](https://learn.microsoft.com/azure/api-management/authentication-managed-identity-policy)
+
 ---
 
 # Scenario 2 - raw MCP through APIM
@@ -234,6 +292,14 @@ https://<apim>.azure-api.net/learn-mcp-mi/mcp
 ```
 
 APIM defines `POST`, `GET`, and `DELETE` operations and forwards responses without buffering. This matters because MCP sessions can stream events over a long-lived HTTP exchange.
+
+## Inspect the deployed MCP path
+
+1. In APIM, open **Microsoft Learn MCP (managed identity callers)** and inspect its three operations.
+2. Open the API policy. The inbound section validates tenant, audience, and caller object ID; the backend section removes `Authorization` before calling the public Microsoft Learn server.
+3. In the Foundry app project, inspect the project connection named `app-mcp-via-apim`. Its target is the APIM URL, not the upstream MCP URL.
+
+![The raw MCP API exposes POST, GET, and DELETE operations for streamable HTTP sessions.](assets/portal-apim-mcp-operations.png)
 
 ## Run both consumers
 
@@ -258,6 +324,12 @@ Both agents use the Scenario 1 model path, invoke Microsoft Learn through APIM, 
 
 The owning files are `src/test/scenario2_maf_mcp_apim.py`, `src/test/scenario2_foundry_mcp_apim.py`, and `infra/two-consumer-apim.bicep`.
 
+## Source documentation
+
+- [Connect Foundry agents to MCP servers](https://learn.microsoft.com/azure/foundry/agents/how-to/tools/model-context-protocol)
+- [Secure MCP servers with Azure API Management](https://learn.microsoft.com/azure/api-management/secure-mcp-servers)
+- [MCP authorization concepts in API Management](https://learn.microsoft.com/azure/api-management/mcp-server-overview)
+
 ---
 
 # Scenario 3 - Foundry Toolbox through APIM
@@ -272,6 +344,14 @@ Publish a reusable Foundry Toolbox as an MCP-compatible endpoint, then govern bo
 - **Egress:** Toolbox project identity to APIM to Microsoft Learn MCP.
 
 The consumer does not need to know which tools are inside the Toolbox. A publisher can create a new version and change the default without changing the consumer URL.
+
+## Inspect the deployed Toolbox path
+
+1. In the Toolbox publisher project, open **Build** > **Toolbox** > `scenario1-apim-toolbox`. Inspect the default immutable version and its MCP tool connection.
+2. In APIM, open **Foundry research Toolbox**. Its backend targets the Toolbox MCP endpoint, and APIM authenticates with its own managed identity.
+3. In the Foundry app project, inspect `app-toolbox-via-apim`. The consumer sees APIM as one MCP endpoint and does not own the Toolbox's downstream credential.
+
+![The Toolbox API exposes POST, GET, and DELETE MCP transport operations through APIM.](assets/portal-apim-toolbox-api.png)
 
 ## Create or update the Toolbox
 
@@ -295,6 +375,12 @@ The local MAF application consumes the Toolbox as an MCP server. The Foundry app
 
 The implementation is in `src/test/setup_foundry_toolbox.py`, the two `scenario3_*.py` files, and the Toolbox backend/API section of `infra/two-consumer-apim.bicep`.
 
+## Source documentation
+
+- [What is Toolbox in Microsoft Foundry?](https://learn.microsoft.com/azure/foundry/agents/concepts/toolbox-overview)
+- [Create and use a Foundry Toolbox](https://learn.microsoft.com/azure/foundry/agents/how-to/tools/toolbox)
+- [Use Foundry Toolboxes as MCP endpoints](https://learn.microsoft.com/azure/foundry/agents/how-to/tools/model-context-protocol#use-foundry-toolboxes-as-mcp-endpoints)
+
 ---
 
 # Scenario 4 - Foundry agent through APIM
@@ -311,6 +397,15 @@ This flow has two distinct protocol phases:
 2. **Invocation:** send A2A JSON-RPC messages to the URL advertised by that card.
 
 Both phases are protected. The Foundry consumer therefore sets `send_credentials_for_agent_card: true`; otherwise Agent Service would fetch the card anonymously and receive HTTP 401.
+
+## Inspect the deployed A2A path
+
+1. In the publisher Foundry project, open the `enterprise-specialist` agent and inspect its prompt definition. Incoming A2A enablement is not currently exposed in the Foundry portal; verify that data-plane setting in `src/test/setup_enterprise_foundry_agent.py` or with the REST/SDK method in the source documentation below.
+2. In APIM, open **Enterprise Foundry agent**. Compare the protected card operations with the JSON-RPC runtime operation.
+3. Inspect the APIM backend and policy. APIM obtains an `https://ai.azure.com` token with its system identity, then rewrites card URLs back to the public APIM path.
+4. In the Foundry app project, inspect the `enterprise-agent-apim` A2A connection. Its target ends in `/`, which preserves the discovery base path.
+
+![The A2A API separates JSON-RPC invocation from its protected agent-card operations.](assets/portal-apim-a2a-operations.png)
 
 ## Run both consumers
 
@@ -337,11 +432,17 @@ The local client requests the v1.0 card explicitly. Foundry Agent Service uses t
 
 See `infra/enterprise-foundry-agent-apim.bicep` for the operations and policies, and `src/test/setup_enterprise_foundry_agent.py` for publisher-side agent creation and incoming A2A enablement.
 
+## Source documentation
+
+- [Connect Foundry Agent Service to an A2A endpoint](https://learn.microsoft.com/azure/foundry/agents/how-to/tools/agent-to-agent)
+- [Agent2Agent authentication and protected agent cards](https://learn.microsoft.com/azure/foundry/agents/concepts/agent-to-agent-authentication)
+- [Enable an incoming A2A endpoint on a Foundry agent](https://learn.microsoft.com/azure/foundry/agents/how-to/enable-agent-to-agent-endpoint)
+
 ---
 
-# Scenario 5 - enterprise capstone
+# Scenario 5 - model + Toolbox + A2A workflow
 
-![Both consumers compose the APIM model, Toolbox, and enterprise A2A surfaces to answer one question with research and governance advice.](assets/capstone-two-consumers.svg)
+![The local consumer composes the APIM model, Toolbox, and A2A APIs. The Foundry-hosted consumer uses its native driver model with the same APIM-published Toolbox and A2A tools.](assets/combined-workflow-two-consumers.svg)
 
 ## Goal
 
@@ -353,18 +454,165 @@ The prompt asks:
 
 The answer should combine Microsoft Learn research from the Toolbox with governance advice from the enterprise A2A specialist.
 
-## Run both capstones
+## Inspect the combined workflow
+
+There is no fifth gateway API. Scenario 5a composes three existing APIM contracts: the model API for reasoning, the Toolbox API for research, and the A2A API for specialist advice. Scenario 5b composes the same Toolbox and A2A contracts with the app project's native driver model because of the preview limitation documented in Scenario 3. In APIM **Logs**, the local task can span all three surfaces; the hosted task contributes Toolbox and A2A requests.
+
+## Run both consumers
 
 ```powershell
-& $python .\src\test\scenario5_maf_capstone.py
-& $python .\src\test\scenario5_foundry_capstone.py
+& $python .\src\test\scenario5_maf_combined_workflow.py
+& $python .\src\test\scenario5_foundry_combined_workflow.py
 ```
 
-Scenario 5a instruments its local HTTP client and specialist wrapper. It fails unless it observes at least one Toolbox request and one A2A specialist call.
+Scenario 5a instruments its local HTTP client and specialist wrapper. It fails unless it observes at least one successful Toolbox JSON-RPC `tools/call` response and one nonempty completed A2A specialist result.
 
-Scenario 5b creates one Foundry agent version with `MCPTool` and `A2APreviewTool`, then runs a directed research turn followed by a specialist-advice turn. It uses the native driver for the same preview limitation described in Scenario 3.
+Scenario 5b creates one Foundry agent version with `MCPTool` and `A2APreviewTool`, then runs a directed research turn followed by a specialist-advice turn. The test requires a completed Toolbox `mcp_call` plus a matching completed A2A call and result pair, so generated text without both tool invocations cannot pass. It uses the native driver for the same preview limitation described in Scenario 3, so its model calls do not appear in APIM logs.
 
 When `KEEP_AGENT=0`, both scripts delete temporary conversations and agent versions. The full runner sets this value automatically.
+
+## Source documentation
+
+- [AI gateway capabilities in Azure API Management](https://learn.microsoft.com/azure/api-management/genai-gateway-capabilities)
+- [Toolbox architecture and centralized tool governance](https://learn.microsoft.com/azure/foundry/agents/concepts/toolbox-overview)
+- [A2A tool concepts and usage](https://learn.microsoft.com/azure/foundry/agents/how-to/tools/agent-to-agent)
+
+---
+
+# APIM observability
+
+![Both consumers send model, MCP, Toolbox, and A2A requests through APIM. A service-level diagnostic setting exports gateway request metadata and metrics to dedicated Log Analytics tables.](assets/apim-observability.svg)
+
+## Goal
+
+Correlate the model, raw MCP, Toolbox, and A2A calls you ran in Scenarios 1-5 with APIM status, timing, operation, and correlation data. The logging path is already configured; this page makes no infrastructure changes.
+
+## What the IaC configures
+
+`infra/main.bicep` creates one workspace and one APIM service-level diagnostic setting. Because the setting is scoped to the APIM service, it also covers APIs added by the later Toolbox and A2A templates.
+
+<div style="max-width: 100%; overflow-x: auto;">
+
+| Export | Dedicated table | What it contributes |
+|---|---|---|
+| `GatewayLogs` | `ApiManagementGatewayLogs` | Every gateway request: URL, API/operation IDs, status, total/backend latency, error details, and correlation ID |
+| `AllMetrics` | `AzureMetrics` | APIM capacity and request metrics for charts and alerts |
+
+</div>
+
+The destination type is `Dedicated`, so queries use resource-specific tables instead of the legacy shared `AzureDiagnostics` table. The workspace keeps data for 30 days.
+
+> [!IMPORTANT]
+> `GatewayLlmLogs` is deliberately disabled because it records request and response message fields. `GatewayMCPLogs` is also disabled: these workshop MCP surfaces are ordinary HTTP APIs, so their activity appears in `ApiManagementGatewayLogs` rather than the native MCP table. This metadata-only default lets you inspect routing and performance without copying prompts, model responses, or tool payloads into Log Analytics.
+
+Disabling a category stops new ingestion; it does not delete records that were collected earlier. Historical rows remain subject to the workspace's 30-day retention unless a workspace owner separately approves a purge.
+
+## Inspect the diagnostic setting
+
+In the Azure portal:
+
+1. Open the APIM service from `lab-foundry-ai-gateway`.
+2. Select **Monitoring** > **Diagnostic settings**.
+3. Open `apim-gateway-observability`.
+4. Confirm **Gateway** and **AllMetrics** are selected. Confirm **Generative AI gateway** and **MCP** are cleared.
+5. Confirm the destination is the `log-apim-...` Log Analytics workspace and **Resource specific** is selected.
+
+![Gateway logs and metrics flow to resource-specific Log Analytics tables; generative AI and MCP categories remain disabled.](assets/portal-apim-diagnostic-settings.png)
+
+The same facts are available without changing anything:
+
+```powershell
+$config = Get-Content .\infra\scenario-outputs.json -Raw | ConvertFrom-Json
+
+az monitor diagnostic-settings show `
+  --name $config.apimDiagnosticSettingsName `
+  --resource $config.apimServiceId `
+  --query "{logs:logs[].{category:category,enabled:enabled},metrics:metrics[].{category:category,enabled:enabled},workspaceId:workspaceId}"
+```
+
+## Query the scenario traffic
+
+Open APIM > **Monitoring** > **Logs**, close the welcome query window if it appears, and run:
+
+```kusto
+ApiManagementGatewayLogs
+| where TimeGenerated > ago(2h)
+| extend Surface = case(
+  ApiId == 'inference-mi-api', 'Model',
+  ApiId == 'mslearn-mcp-mi', 'Raw MCP',
+  ApiId startswith 'foundry-toolbox-', 'Toolbox',
+  ApiId startswith 'enterprise-foundry-agent-', 'A2A agent',
+    'Other')
+| where Surface != 'Other'
+| project TimeGenerated, Surface, Method, ResponseCode,
+          TotalTime, BackendTime, ApiId, OperationId, CorrelationId
+| order by TimeGenerated desc
+| take 50
+```
+
+Or run the same read-only query from the repository:
+
+```powershell
+.\src\test\show-apim-observability.ps1 -LookbackMinutes 120 -Limit 50
+```
+
+For a screenshot-sized proof of both outcomes on each surface, run this compact projection:
+
+```kusto
+ApiManagementGatewayLogs
+| where TimeGenerated > ago(2h)
+| extend Surface = case(
+  ApiId == 'inference-mi-api', 'Model',
+  ApiId == 'mslearn-mcp-mi', 'Raw MCP',
+  ApiId startswith 'foundry-toolbox-', 'Toolbox',
+  ApiId startswith 'enterprise-foundry-agent-', 'A2A agent',
+    'Other')
+| where Surface != 'Other'
+| extend Outcome = iff(ResponseCode between (200 .. 399), 'Allowed', 'Denied')
+| summarize arg_max(TimeGenerated, *) by Surface, Outcome
+| extend ResultLatency = strcat(
+    Outcome, ' ', ResponseCode, ' | ',
+    tolong(TotalTime), '/', iff(isnull(BackendTime), '-', tostring(tolong(BackendTime))), ' ms')
+| order by Surface asc, Outcome asc
+| project Surface, ResultLatency
+```
+
+![Live Log Analytics results show allowed and denied calls for the model, raw MCP, Toolbox, and A2A agent surfaces.](assets/portal-apim-logs.png)
+
+`ResultLatency` is `outcome status | total/backend ms`. A `-` backend value means APIM rejected the request before calling a backend.
+
+Look for:
+
+- `Model` with operation `chat-completions`.
+- `Raw MCP` and `Toolbox` with MCP operations such as `mcp-post`.
+- `A2A agent` with card discovery and `a2a-jsonrpc` operations.
+- HTTP 200 or 202 for successful calls and HTTP 401 for the deliberate security tests.
+- Empty `BackendTime` on a 401, showing that APIM rejected the request before a backend call.
+
+To generate a fresh, complete set of records, run the consumer suite and then repeat the query:
+
+```powershell
+.\src\test\run-two-consumer-scenarios.ps1
+```
+
+New workspaces can take up to two hours to receive their first records; an active workspace normally updates within several minutes.
+
+## Use logs and metrics together
+
+Use `ApiManagementGatewayLogs` as the common request view across all four protocols. Start with a `CorrelationId` when you need to follow one request. Use APIM > **Monitoring** > **Analytics** or `AzureMetrics` for trends such as request volume, failures, latency, and capacity rather than individual calls.
+
+This separation answers different questions:
+
+- **Logs:** Which API and operation ran? Did APIM or the backend reject it? How long did each hop take?
+- **Metrics:** Is traffic, failure rate, latency, or gateway capacity changing over time?
+
+## Source documentation
+
+- [Monitor Azure API Management](https://learn.microsoft.com/azure/api-management/monitor-api-management)
+- [Configure APIM logs and metrics with Azure Monitor](https://learn.microsoft.com/azure/api-management/api-management-howto-use-azure-monitor)
+- [API Management monitoring data reference](https://learn.microsoft.com/azure/api-management/monitor-api-management-reference)
+- [ApiManagementGatewayLogs table schema](https://learn.microsoft.com/azure/azure-monitor/reference/tables/apimanagementgatewaylogs)
+- [Diagnostic settings in Azure Monitor](https://learn.microsoft.com/azure/azure-monitor/essentials/diagnostic-settings)
 
 ---
 
@@ -419,35 +667,51 @@ The deployment adds a small protected Container App that:
 
 This is a compatibility adapter, not a bypass. The invocation still crosses LiteLLM and remains visible to its A2A gateway.
 
-## Deploy the optional path
+![The running A2A shim Container App provides host-root discovery and forwards JSON-RPC calls to LiteLLM.](assets/portal-litellm-a2a-shim.png)
 
-First deploy the canonical LiteLLM stack by following its README. For a new public-ingress test deployment:
+## Inspect the predeployed optional path
 
-```powershell
-Push-Location .\litellm-gateway\litellm-azure-private-endpoints
-terraform init
-terraform apply
-Pop-Location
-```
-
-Then add the Foundry connections and authenticated A2A shim:
+The facilitator has already deployed this comparison. Load its non-secret endpoints:
 
 ```powershell
-.\infra\deploy-litellm-scenario.ps1
+$config = Get-Content .\infra\scenario-outputs.json -Raw | ConvertFrom-Json
+$config.litellmBaseUrl
+$config.litellmModel
+$config.litellmMcpUrl
+$config.litellmA2aGatewayUrl
+$config.litellmA2aShimUrl
 ```
 
-The script reads the LiteLLM URL, public model name, and credential from that Terraform state. It writes only non-secret URLs and connection resource IDs to `infra/scenario-outputs.json`.
+Inspect the two ownership layers:
+
+1. In Azure portal > **Resource groups** > `lab-foundry-ai-gateway`, open the LiteLLM and A2A shim Container Apps. The canonical Terraform under `litellm-gateway/litellm-azure-private-endpoints` owns the LiteLLM network, identity, database, cache, and private Foundry access.
+2. In the Foundry app project > **Management center** > **Connected resources**, find `litellm-gateway`, `app-mcp-via-litellm`, and `app-a2a-via-litellm`. `infra/litellm-foundry-connections.bicep` owns those control-plane connections and the shim resource.
+
+![The running LiteLLM Container App provides the public gateway backed by private Foundry model access.](assets/portal-litellm-container-app.png)
+
+![Foundry lists LiteLLM as an admin-connected model gateway alongside the APIM model connection.](assets/portal-foundry-litellm-model-connection.png)
+
+![Foundry keeps separate MCP and RemoteA2A project connections for the LiteLLM surfaces.](assets/portal-foundry-litellm-project-connections.png)
+
+`infra/deploy-litellm-scenario.ps1` is facilitator glue: it uses the administrator key only for LiteLLM control-plane operations, creates or reuses a budgeted virtual key scoped to the configured model, the `mslearn` MCP server, and the registered `dummy-specialist` A2A agent, and deploys that scoped key to the Foundry connections and A2A shim. It stores the facilitator copy with Windows DPAPI outside the repository and writes only non-secret URLs and resource IDs to `infra/scenario-outputs.json`.
 
 > [!WARNING]
-> The workshop runner uses the existing LiteLLM administrator credential to keep the optional setup repeatable. Do not use a master key as an application credential in production. Create scoped virtual keys with budgets and model restrictions, or configure OAuth 2.0 when supported by your LiteLLM deployment and Foundry connection contract. Keep all such credentials in a secret store.
+> The facilitator supplies the scoped LiteLLM virtual key through an approved secret channel. Do not use the administrator key as an application credential. The workshop key has a budget and allowlists exactly one model, the `mslearn` MCP server, and the registered `dummy-specialist` A2A agent; configure OAuth 2.0 when supported by your LiteLLM deployment and Foundry connection contract.
 
 ## Run both consumers
 
 ```powershell
-.\src\test\run-litellm-scenario.ps1
+$env:LITELLM_API_KEY = "<facilitator-issued-scoped-key>"
+try {
+  .\src\test\run-litellm-scenario.ps1
+} finally {
+  Remove-Item Env:LITELLM_API_KEY -ErrorAction SilentlyContinue
+}
 ```
 
-The runner keeps the credential in an environment variable only for the child processes. It executes:
+Learners do not need Terraform state. A maintainer who is validating the deployment locally can omit `LITELLM_API_KEY` and pass `-UseTerraformAdminKey` explicitly.
+
+The runner preserves caller-owned environment variables and restores its temporary state in a `finally` block. The outer `finally` removes the scoped key even if setup fails before the runner starts its child processes. It executes:
 
 - `scenario6_maf_litellm.py`: local MAF model, MCP, and native A2A calls.
 - `scenario6_foundry_litellm.py`: Foundry `ModelGateway`, `MCPTool`, and `A2APreviewTool` calls.
@@ -459,7 +723,15 @@ A successful run ends with:
 Optional LiteLLM two-consumer scenario passed.
 ```
 
-The owning infrastructure is `infra/litellm-foundry-connections.bicep`. Re-running its deployment script does not recreate ownership-bound Foundry connections, and an embedded source fingerprint rolls the A2A shim whenever its code changes.
+The owning infrastructure is `infra/litellm-foundry-connections.bicep`. Re-running its deployment script reapplies the existing Foundry connections so credential rotations reach all three surfaces. The source hash tracks shim code changes, and each deployment supplies a fresh credential revision value; either template change creates a Container Apps revision that reloads the mounted code and secret. The facilitator can run `infra/copy-litellm-workshop-key.ps1` to copy the DPAPI-protected key without printing it.
+
+## Source documentation
+
+- [Choose `ApiManagement` or `ModelGateway` for a Foundry connected model](https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway#create-a-model-connection)
+- [Connect Foundry agents to MCP servers](https://learn.microsoft.com/azure/foundry/agents/how-to/tools/model-context-protocol)
+- [Connect Foundry agents to A2A endpoints](https://learn.microsoft.com/azure/foundry/agents/how-to/tools/agent-to-agent)
+- [LiteLLM proxy server](https://docs.litellm.ai/docs/simple_proxy)
+- [LiteLLM virtual keys](https://docs.litellm.ai/docs/proxy/virtual_keys)
 
 ---
 
@@ -529,9 +801,9 @@ Scenario 6 remains optional and has its own runner so it cannot change the keyle
 - APIM always has a built-in all-access subscription, but none of the four workshop APIs requires it and the lab never reads or distributes its keys.
 - The optional `ModelGateway` path uses a stored LiteLLM bearer credential at the client edge. This is a deliberate contrast with the project-managed-identity `ApiManagement` path, not a keyless claim.
 
-## Clean up
+## Facilitator cleanup
 
-The resource group contains billable APIM and model deployments. Remove it when you finish:
+The resource group contains billable APIM and model deployments. Learners should not delete it during a shared workshop. When the session is over, the facilitator removes it with:
 
 ```powershell
 .\infra\cleanup.ps1
@@ -539,14 +811,9 @@ The resource group contains billable APIM and model deployments. Remove it when 
 
 Deletion runs asynchronously. APIM soft deletion can retain the service name temporarily.
 
-## References
+## Source documentation
 
-- [AI gateway capabilities in Azure API Management](https://learn.microsoft.com/azure/api-management/genai-gateway-capabilities)
-- [Backends and load-balanced pools in API Management](https://learn.microsoft.com/azure/api-management/backends)
 - [Validate Microsoft Entra tokens in API Management](https://learn.microsoft.com/azure/api-management/validate-azure-ad-token-policy)
-- [Bring your own model to Foundry Agent Service](https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway)
-- [LiteLLM proxy server](https://docs.litellm.ai/docs/simple_proxy)
-- [LiteLLM virtual keys](https://docs.litellm.ai/docs/proxy/virtual_keys)
-- [Connect Foundry agents to MCP servers and Toolboxes](https://learn.microsoft.com/azure/foundry/agents/how-to/tools/model-context-protocol)
-- [Connect Foundry Agent Service to an A2A endpoint](https://learn.microsoft.com/azure/foundry/agents/how-to/tools/agent-to-agent)
-- [Agent2Agent authentication and protected agent cards](https://learn.microsoft.com/azure/foundry/agents/concepts/agent-to-agent-authentication)
+- [Authenticate APIM backends with managed identity](https://learn.microsoft.com/azure/api-management/authentication-managed-identity-policy)
+- [APIM security baseline](https://learn.microsoft.com/security/benchmark/azure/baselines/api-management-security-baseline)
+- [Azure resource group deletion](https://learn.microsoft.com/azure/azure-resource-manager/management/delete-resource-group)

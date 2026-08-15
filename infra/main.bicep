@@ -115,6 +115,41 @@ resource apimService 'Microsoft.ApiManagement/service@2024-06-01-preview' = {
   }
 }
 
+resource apimLogAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
+  name: 'log-apim-${resourceSuffix}'
+  location: location
+  properties: {
+    features: {
+      enableLogAccessUsingOnlyResourcePermissions: true
+    }
+    retentionInDays: 30
+    sku: {
+      name: 'PerGB2018'
+    }
+  }
+}
+
+resource apimDiagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
+  name: 'apim-gateway-observability'
+  scope: apimService
+  properties: {
+    logAnalyticsDestinationType: 'Dedicated'
+    workspaceId: apimLogAnalytics.id
+    logs: [
+      {
+        category: 'GatewayLogs'
+        enabled: true
+      }
+    ]
+    metrics: [
+      {
+        category: 'AllMetrics'
+        enabled: true
+      }
+    ]
+  }
+}
+
 // ------------------
 //    AI FOUNDRY
 // ------------------
@@ -364,6 +399,9 @@ resource mcpBackend 'Microsoft.ApiManagement/service/backends@2024-06-01-preview
 output apimServiceId string = apimService.id
 output apimServiceName string = apimService.name
 output apimResourceGatewayURL string = apimService.properties.gatewayUrl
+output apimLogAnalyticsWorkspaceId string = apimLogAnalytics.id
+output apimLogAnalyticsWorkspaceName string = apimLogAnalytics.name
+output apimDiagnosticSettingsName string = apimDiagnosticSettings.name
 output miInferenceAPIPath string = miInferenceAPIPath
 
 output foundryAccounts array = [

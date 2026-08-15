@@ -1,6 +1,7 @@
-"""MAF capstone: APIM model + APIM Toolbox + APIM A2A agent, all keyless."""
+"""MAF combined workflow: APIM model, Toolbox, and A2A agent, all keyless."""
 
 import asyncio
+import json
 import os
 import sys
 
@@ -40,15 +41,30 @@ class EntraAuth(httpx.Auth):
 
 async def main() -> None:
     credential = DefaultAzureCredential(process_timeout=cfg.credential_process_timeout())
-    toolbox_request_count = 0
+    toolbox_call_count = 0
     specialist_call_count = 0
 
-    async def observe_request(request: httpx.Request) -> None:
-        nonlocal toolbox_request_count
-        if "/toolboxes/research/" in request.url.path:
-            toolbox_request_count += 1
+    async def observe_response(response: httpx.Response) -> None:
+        nonlocal toolbox_call_count
+        request = response.request
+        if (
+            request.method != "POST"
+            or "/toolboxes/research/" not in request.url.path
+            or not response.is_success
+        ):
+            return
+        try:
+            payload = json.loads(request.content)
+        except (json.JSONDecodeError, TypeError, UnicodeDecodeError):
+            return
+        messages = payload if isinstance(payload, list) else [payload]
+        toolbox_call_count += sum(
+            1
+            for message in messages
+            if isinstance(message, dict) and message.get("method") == "tools/call"
+        )
 
-    print("Scenario 5a - MAF enterprise capstone")
+    print("Scenario 5a - MAF model + Toolbox + A2A workflow")
     print(f"  Model   : {GATEWAY_URL}/{MODEL_API_PATH}")
     print(f"  Toolbox : {TOOLBOX_APIM_URL}")
     print(f"  A2A     : {A2A_APIM_URL}")
@@ -63,7 +79,7 @@ async def main() -> None:
             auth=EntraAuth(credential, INBOUND_SCOPE),
             follow_redirects=True,
             timeout=httpx.Timeout(180.0),
-            event_hooks={"request": [observe_request]},
+            event_hooks={"response": [observe_response]},
         ) as http_client:
             resolver = A2ACardResolver(
                 httpx_client=http_client,
@@ -76,12 +92,14 @@ async def main() -> None:
             async def consult_enterprise_specialist(question: str) -> str:
                 """Ask the APIM-published enterprise specialist agent for advice."""
                 nonlocal specialist_call_count
-                specialist_call_count += 1
                 response = await specialist.run(question)
                 text = getattr(response, "text", None)
                 if not text and getattr(response, "messages", None):
                     text = response.messages[-1].text
-                return str(text or response)
+                if not text:
+                    raise RuntimeError("The APIM-published A2A specialist returned no text.")
+                specialist_call_count += 1
+                return str(text)
 
             toolbox = MCPStreamableHTTPTool(
                 name="research_toolbox",
@@ -91,9 +109,9 @@ async def main() -> None:
                 approval_mode="never_require",
             )
             async with toolbox:
-                baseline_toolbox_requests = toolbox_request_count
+                baseline_toolbox_calls = toolbox_call_count
                 agent = model_client.as_agent(
-                    name="sc5-maf-enterprise-capstone",
+                    name="sc5-maf-combined-workflow",
                     instructions=(
                         "Always use both available capabilities. Research the factual part with "
                         "the research Toolbox, then ask the enterprise specialist for governance "
@@ -106,14 +124,14 @@ async def main() -> None:
                     "behind it?"
                 )
 
-        if toolbox_request_count <= baseline_toolbox_requests:
-            raise RuntimeError("The capstone did not invoke the APIM-published Toolbox.")
+        if toolbox_call_count <= baseline_toolbox_calls:
+            raise RuntimeError("The combined workflow did not complete a Toolbox tools/call request.")
         if specialist_call_count < 1:
-            raise RuntimeError("The capstone did not invoke the APIM-published A2A specialist.")
+            raise RuntimeError("The combined workflow did not invoke the APIM-published A2A specialist.")
         text = (result.text or "").strip().replace("\n", " ")
         if not text:
-            raise RuntimeError("The capstone returned an empty response.")
-        print(f"  Calls   : Toolbox={toolbox_request_count - baseline_toolbox_requests}, A2A={specialist_call_count}")
+            raise RuntimeError("The combined workflow returned an empty response.")
+        print(f"  Calls   : Toolbox={toolbox_call_count - baseline_toolbox_calls}, A2A={specialist_call_count}")
         print(f"  PASS    : {text}")
     finally:
         await credential.close()

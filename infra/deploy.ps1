@@ -35,14 +35,52 @@ $outputs = & $az deployment group show --name $DeploymentName --resource-group $
 if ($LASTEXITCODE -ne 0 -or -not $outputs.apimServiceName.value) {
     throw "Could not read core deployment outputs."
 }
+$requiredOutputs = @(
+    "apimServiceId",
+    "apimServiceName",
+    "apimResourceGatewayURL",
+    "apimLogAnalyticsWorkspaceId",
+    "apimLogAnalyticsWorkspaceName",
+    "apimDiagnosticSettingsName"
+)
+foreach ($name in $requiredOutputs) {
+    if (-not $outputs.$name.value) {
+        throw "Core deployment output '$name' is missing."
+    }
+}
 
 $gateway = $outputs.apimResourceGatewayURL.value
 Write-Host "APIM Gateway URL : $gateway"
 Write-Host "Model API        : $gateway/$($outputs.miInferenceAPIPath.value) (Microsoft Entra ID)"
+Write-Host "APIM logs        : $($outputs.apimLogAnalyticsWorkspaceName.value)"
 Write-Host "`nFoundry backends:"
 $outputs.foundryAccounts.value | ForEach-Object {
     Write-Host ("  - {0,-28} {1,-14} priority={2}" -f $_.name, $_.location, $_.priority)
 }
+
+$outputsFile = Join-Path $PSScriptRoot "scenario-outputs.json"
+$config = if (Test-Path $outputsFile) { Get-Content $outputsFile -Raw -Encoding UTF8 | ConvertFrom-Json } else { [pscustomobject]@{} }
+$apimServiceId = $outputs.apimServiceId.value
+$hasExistingConfig = @($config.PSObject.Properties).Count -gt 0
+$manifestMatchesEnvironment = $config.resourceGroup -eq $ResourceGroup -and $config.apimServiceId -eq $apimServiceId
+if ($hasExistingConfig -and -not $manifestMatchesEnvironment) {
+    $config = [pscustomobject]@{}
+}
+$values = [ordered]@{
+    resourceGroup = $ResourceGroup
+    apimServiceId = $apimServiceId
+    apimServiceName = $outputs.apimServiceName.value
+    apimGatewayUrl = $gateway
+    apimLogAnalyticsWorkspaceId = $outputs.apimLogAnalyticsWorkspaceId.value
+    apimLogAnalyticsWorkspaceName = $outputs.apimLogAnalyticsWorkspaceName.value
+    apimDiagnosticSettingsName = $outputs.apimDiagnosticSettingsName.value
+}
+foreach ($entry in $values.GetEnumerator()) {
+    $config | Add-Member -NotePropertyName $entry.Key -NotePropertyValue $entry.Value -Force
+}
+$tempOutputsFile = "$outputsFile.tmp"
+$config | ConvertTo-Json -Depth 10 | Set-Content $tempOutputsFile -Encoding utf8
+Move-Item $tempOutputsFile $outputsFile -Force
 
 Write-Host "`nNext:" -ForegroundColor Cyan
 Write-Host "  ./deploy-foundry-consumers.ps1"
