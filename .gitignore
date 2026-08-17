@@ -38,6 +38,9 @@ Thumbs.db
 
 # Misc temp
 gitstatus*.txt
+/*.err
+/*.out
+/*.exit
 
 # Archives / large bundles (don't bloat the repo — push source, not zips)
 *.zip

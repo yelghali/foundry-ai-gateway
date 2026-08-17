@@ -1,5 +1,5 @@
 ---
-published: false
+published: true
 type: workshop
 title: Keyless Enterprise AI Gateway with APIM and Microsoft Foundry
 short_title: Keyless APIM and Foundry Lab
@@ -86,6 +86,7 @@ After validation, APIM terminates that credential. It uses its own managed ident
 - [AI gateway capabilities in Azure API Management](https://learn.microsoft.com/azure/api-management/genai-gateway-capabilities)
 - [Bring your own model to Foundry Agent Service](https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway)
 - [What is Foundry Toolbox?](https://learn.microsoft.com/azure/foundry/agents/concepts/toolbox-overview)
+- [Network isolation for a Toolbox in Microsoft Foundry](https://learn.microsoft.com/azure/foundry/agents/how-to/tools/toolbox-network-isolation)
 - [Connect Foundry agents to A2A endpoints](https://learn.microsoft.com/azure/foundry/agents/how-to/tools/agent-to-agent)
 
 ---
@@ -340,14 +341,19 @@ The owning files are `src/test/scenario2_maf_mcp_apim.py`, `src/test/scenario2_f
 
 Publish a reusable Foundry Toolbox as an MCP-compatible endpoint, then govern both directions:
 
-- **Ingress:** consumer to APIM to Foundry Toolbox.
-- **Egress:** Toolbox project identity to APIM to Microsoft Learn MCP.
+- **Ingress:** consumer to the public APIM gateway to the public Foundry Toolbox project endpoint.
+- **Egress:** Toolbox project identity to the public APIM gateway to Microsoft Learn MCP.
 
 The consumer does not need to know which tools are inside the Toolbox. A publisher can create a new version and change the default without changing the consumer URL.
 
+> [!IMPORTANT]
+> Keyless authentication is not network isolation. A Toolbox is a logical container and does not deploy networking resources; the hosting Foundry project's configuration governs its network access. This workshop intentionally sets `publicNetworkAccess` to `Enabled` on the Foundry resources and uses APIM's public gateway.
+>
+> In a network-isolated project, agents reach the Toolbox MCP endpoint through the project's private endpoint, while downstream MCP traffic flows through the project's VNet-injected delegated subnet. To keep the Foundry-to-APIM hop private, APIM also needs private reachability and DNS from that subnet. The final APIM-to-Microsoft Learn hop remains public; a requirement that every hop stay private needs a privately reachable MCP server instead. This is a separate production topology, not a setting on the Toolbox created by this lab.
+
 ## Inspect the deployed Toolbox path
 
-1. In the Toolbox publisher project, open **Build** > **Toolbox** > `scenario1-apim-toolbox`. Inspect the default immutable version and its MCP tool connection.
+1. In the Toolbox publisher project, open **Build** > **Toolbox** > `scenario1-apim-toolbox`. Inspect the default immutable version and its MCP tool connection. Under **Resource Management** > **Networking**, note that this workshop allows access from all networks.
 2. In APIM, open **Foundry research Toolbox**. Its backend targets the Toolbox MCP endpoint, and APIM authenticates with its own managed identity.
 3. In the Foundry app project, inspect `app-toolbox-via-apim`. The consumer sees APIM as one MCP endpoint and does not own the Toolbox's downstream credential.
 
@@ -379,6 +385,7 @@ The implementation is in `src/test/setup_foundry_toolbox.py`, the two `scenario3
 
 - [What is Toolbox in Microsoft Foundry?](https://learn.microsoft.com/azure/foundry/agents/concepts/toolbox-overview)
 - [Create and use a Foundry Toolbox](https://learn.microsoft.com/azure/foundry/agents/how-to/tools/toolbox)
+- [Network isolation for a Toolbox in Microsoft Foundry](https://learn.microsoft.com/azure/foundry/agents/how-to/tools/toolbox-network-isolation)
 - [Use Foundry Toolboxes as MCP endpoints](https://learn.microsoft.com/azure/foundry/agents/how-to/tools/model-context-protocol#use-foundry-toolboxes-as-mcp-endpoints)
 
 ---
@@ -796,7 +803,7 @@ Scenario 6 remains optional and has its own runner so it cannot change the keyle
 - Toolbox and A2A integrations use preview APIs and SDK types.
 - The connected APIM model plus Toolbox combination currently returns HTTP 500 in Agent Service; Scenarios 3b and 5b use the native driver and keep every tool call behind APIM.
 - `setup_foundry_toolbox.py` creates a new immutable Toolbox version on every run and promotes it. Delete old versions manually if you run the suite frequently.
-- The sample enables public network access. For production, add private connectivity, DNS, diagnostics, policy fragments, and a dedicated application audience.
+- The sample intentionally enables public network access. For production Toolbox isolation, configure the hosting project with a private endpoint and VNet injection, make APIM privately reachable with matching DNS from the delegated subnet, and review each downstream tool's supported traffic path. The Microsoft Learn MCP upstream in this lab remains public; replace it if every hop must stay private. Authentication through APIM alone does not create a private network boundary. See [Network isolation for a Toolbox in Microsoft Foundry](https://learn.microsoft.com/azure/foundry/agents/how-to/tools/toolbox-network-isolation).
 - The deployment allowlists the signed-in developer object ID. For CI/CD, pass `-LocalCallerObjectId <workload-object-id>` to the APIM extension scripts.
 - APIM always has a built-in all-access subscription, but none of the four workshop APIs requires it and the lab never reads or distributes its keys.
 - The optional `ModelGateway` path uses a stored LiteLLM bearer credential at the client edge. This is a deliberate contrast with the project-managed-identity `ApiManagement` path, not a keyless claim.

@@ -29,6 +29,17 @@ Scenarios 1-5 use a Foundry **bring-your-own-model `ApiManagement` connection** 
 
 The optional LiteLLM edge requires a bearer credential because the current `ModelGateway` connection contract does not support project managed identity. LiteLLM uses managed identity downstream for its private Foundry model endpoints. See the workshop's Scenario 6 comparison before choosing between these connection types.
 
+## Network scope
+
+Keyless authentication and network isolation are separate controls. This workshop intentionally enables public network access on its Foundry resources and uses APIM's public gateway so a learner can run the local consumer without private network access.
+
+A Toolbox is a logical container and does not deploy networking resources of its own. The hosting Foundry project's network configuration governs access to the Toolbox, while each downstream tool type has its own traffic path. In this lab:
+
+- Toolbox ingress goes from the consumer through the public APIM gateway to the public Foundry project endpoint.
+- The Toolbox's MCP tool reaches the public APIM gateway with the publisher project managed identity, and APIM forwards to the public Microsoft Learn MCP server without that credential.
+
+For a network-isolated deployment, secure the hosting project with a private endpoint and VNet injection. Microsoft documents MCP traffic as supported through the project's delegated subnet. To keep the Foundry-to-APIM hop private, make APIM privately reachable with matching DNS from that subnet. The Microsoft Learn MCP upstream remains public, so a requirement that every hop stay private also requires a privately reachable MCP server instead. This is a separate production topology, not a Toolbox-level switch; see [Network isolation for a toolbox in Microsoft Foundry](https://learn.microsoft.com/azure/foundry/agents/how-to/tools/toolbox-network-isolation).
+
 ## Implemented scenarios
 
 | Scenario | Local MAF | Foundry Agent Service | Primary implementation |
@@ -131,7 +142,7 @@ The current implementation was deployed and rerun against Azure. The full suite 
 
 - Both consumers reached the APIM model pool.
 - Both consumers invoked raw MCP through APIM.
-- Both consumers invoked the Foundry Toolbox through APIM; Toolbox egress also crossed APIM.
+- Both consumers invoked the Foundry Toolbox through the public APIM gateway; the Toolbox's MCP egress also crossed that gateway.
 - Both consumers discovered and invoked the Foundry-hosted A2A agent through APIM.
 - Both combined workflows returned research and governance answers.
 - Anonymous and wrong-audience requests returned HTTP 401 on all four surfaces.
@@ -141,7 +152,7 @@ The current implementation was deployed and rerun against Azure. The full suite 
 
 ## Known preview limitation
 
-Foundry Agent Service currently returns HTTP 500 when the Toolbox in this lab is paired with the `ApiManagement` connected model. The Foundry Toolbox scenarios therefore use the app project's native `gpt-4o-mini` driver while Toolbox ingress and egress still cross APIM. The connected APIM model works with raw MCP in Scenario 2.
+Foundry Agent Service currently returns HTTP 500 when the Toolbox in this lab is paired with the `ApiManagement` connected model. The Foundry Toolbox scenarios therefore use the app project's native `gpt-4o-mini` driver while Toolbox ingress and egress still cross the public APIM gateway. The connected APIM model works with raw MCP in Scenario 2.
 
 ## Other repository areas
 
